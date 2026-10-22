@@ -15,6 +15,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   await ensureBootstrapped();
   const user = await getSessionUser();
+  if (!user) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   const url = new URL(request.url);
   const mineOnly = url.searchParams.get("mine") === "true";
   const section = url.searchParams.get("section")?.trim().toLowerCase();

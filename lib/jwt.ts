@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
-import { connectionString } from "./db";
 import type { PortalRole } from "./types";
 
 export const SESSION_COOKIE = "devfunds_session";
@@ -11,31 +9,43 @@ export interface SessionPayload {
   ver: number;
 }
 
-function getSecretBytes(): Uint8Array {
+function rawSecretSeed(): string {
+  const dbUrl = (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    ""
+  ).trim();
   const seed =
-    process.env.AUTH_SECRET ||
-    connectionString() ||
-    "devfunds-local-dev-secret-key";
-  const digest = createHash("sha256")
-    .update(`devfunds-jwt-v1:${seed}`)
-    .digest();
-  return new Uint8Array(digest);
+    process.env.AUTH_SECRET || dbUrl || "devfunds-local-dev-secret-key";
+  return `devfunds-jwt-v1:${seed}`;
 }
 
-export async function signSessionToken(payload: SessionPayload): Promise<string> {
+async function getSecretBytes(): Promise<Uint8Array> {
+  const encoded = new TextEncoder().encode(rawSecretSeed());
+  const hashBuffer = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  return new Uint8Array(hashBuffer);
+}
+
+export async function signSessionToken(
+  payload: SessionPayload
+): Promise<string> {
+  const secret = await getSecretBytes();
   return new SignJWT({ role: payload.role, ver: payload.ver })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
     .setExpirationTime("30d")
-    .sign(getSecretBytes());
+    .sign(secret);
 }
 
 export async function verifySessionToken(
   token: string
 ): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecretBytes());
+    const secret = await getSecretBytes();
+    const { payload } = await jwtVerify(token, secret);
     if (
       typeof payload.sub !== "string" ||
       typeof payload.role !== "string" ||

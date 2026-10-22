@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   await ensureBootstrapped();
   const user = await getSessionUser();
+  if (!user) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
 
   let rows: Record<string, unknown>[] = [];
   if (user?.portalRole === "it_ceo") {
@@ -51,6 +54,9 @@ export async function GET() {
 export async function POST(request: Request) {
   await ensureBootstrapped();
   const sessionUser = await getSessionUser();
+  if (!sessionUser) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
 
   const body = (await request.json().catch(() => ({}))) as {
     userId?: string;

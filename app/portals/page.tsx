@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Crown,
   Laptop,
@@ -36,6 +37,7 @@ function PortalIcon({ role }: { role: PortalRole }) {
 }
 
 export default function PortalsHubPage() {
+  const router = useRouter();
   const {
     user,
     setUser,
@@ -82,6 +84,7 @@ export default function PortalsHubPage() {
       setUser(data.user);
       requestBrowserNotifications().catch(() => undefined);
       toast(`${data.user.name}`);
+      router.push("/");
     } catch {
       setError("Network error.");
     } finally {

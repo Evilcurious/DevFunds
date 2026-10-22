@@ -12,6 +12,10 @@ import { mapSectionRow, mapSpendingRow } from "@/lib/mappers";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   await ensureBootstrapped();
   const settings = await getAppSettings();
   const url = new URL(request.url);

@@ -1,4 +1,4 @@
-import { jsonNoStore } from "@/lib/auth";
+import { getSessionUser, jsonNoStore } from "@/lib/auth";
 import { ensureBootstrapped, getAppSettings } from "@/lib/bootstrap";
 import { getDbMode, one, rawQuery, toNum } from "@/lib/db";
 import { todayInTimezone } from "@/lib/format";
@@ -13,6 +13,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const user = await getSessionUser();
+    if (!user) {
+      return jsonNoStore({ error: "Portal login required." }, 401);
+    }
     await ensureBootstrapped();
     const settings = await getAppSettings();
     const today = todayInTimezone(settings.timezone);

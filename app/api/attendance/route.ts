@@ -26,6 +26,10 @@ const VALID_ATTENDANCE: AttendanceStatus[] = [
 ];
 
 export async function GET(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   await ensureBootstrapped();
   const settings = await getAppSettings();
   const today = todayInTimezone(settings.timezone);
@@ -133,6 +137,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   await ensureBootstrapped();
   const actor = await getSessionUser();
+  if (!actor) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   const settings = await getAppSettings();
   const today = todayInTimezone(settings.timezone);
 

@@ -19,11 +19,14 @@ const VALID_STATUSES: StaffStatus[] = [
   "active",
 ];
 
-// Public Staff Profile endpoint — anyone can view accepted todo tasks & attendance rate!
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
+  const viewer = await getSessionUser();
+  if (!viewer) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   await ensureBootstrapped();
   const { id } = await context.params;
 

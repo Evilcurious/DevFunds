@@ -318,6 +318,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setNotifications([]);
     setUnreadCount(0);
+    if (typeof window !== "undefined") {
+      window.location.href = "/portals";
+    }
   }, []);
 
   const t = useCallback((key: TranslationKey) => tr(lang, key), [lang]);

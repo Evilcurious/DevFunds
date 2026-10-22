@@ -12,6 +12,10 @@ import { mapEarningRow } from "@/lib/mappers";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const user = await getSessionUser();
+  if (!user) {
+    return jsonNoStore({ error: "Portal login required." }, 401);
+  }
   await ensureBootstrapped();
   const settings = await getAppSettings();
 

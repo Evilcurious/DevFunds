@@ -15,10 +15,10 @@ import type { PortalRole, StaffStatus } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 const VALID_STATUSES: StaffStatus[] = [
-  "active",
+  "working",
   "free",
-  "busy",
-  "not_available",
+  "offline",
+  "active",
 ];
 
 export async function GET(request: Request) {
@@ -41,7 +41,27 @@ export async function GET(request: Request) {
               s.name AS section_name,
               a.status AS today_attendance_status,
               a.check_in AS today_check_in,
-              a.check_out AS today_check_out
+              a.check_out AS today_check_out,
+              (SELECT COUNT(*)::int
+               FROM df_tasks tk
+               WHERE tk.assigned_to_id = u.id
+                 AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
+              ) AS accepted_tasks_count,
+              (SELECT COUNT(*)::int
+               FROM df_tasks tk2
+               WHERE tk2.assigned_to_id = u.id
+                 AND tk2.status IN ('submitted', 'completed')
+              ) AS completed_tasks_count,
+              (SELECT COUNT(*)::int
+               FROM df_attendance att
+               WHERE att.user_id = u.id
+                 AND att.status IN ('present', 'late', 'half_day')
+              ) AS present_days_count,
+              (SELECT COUNT(*)::int
+               FROM df_attendance att2
+               WHERE att2.user_id = u.id
+                 AND att2.status IN ('present', 'late', 'half_day', 'absent')
+              ) AS total_tracked_days
        FROM df_users u
        LEFT JOIN df_sections s ON s.slug = u.section_slug
        LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
@@ -129,7 +149,6 @@ export async function POST(request: Request) {
         403
       );
     }
-    // Ensure target section exists (auto-create if 'it' or 'bd' was removed earlier)
     await rawQuery(
       `INSERT INTO df_sections (id, slug, name, description, color, sort_order)
        VALUES ($1, $2, $3, '', 'blue', 99)
@@ -161,7 +180,7 @@ export async function POST(request: Request) {
   const status: StaffStatus =
     body.staffStatus && VALID_STATUSES.includes(body.staffStatus)
       ? body.staffStatus
-      : "active";
+      : "free";
 
   const id = randomUUID();
   const hash = bcrypt.hashSync(password, 10);
@@ -201,7 +220,7 @@ export async function POST(request: Request) {
     actor,
     action: "staff.created",
     targetType: "user",
-    summary: `Created ${targetRole} account for ${name} (${email})${targetSection ? ` in ${targetSection.toUpperCase()}` : ""}`,
+    summary: `Created ${targetRole} account for ${name} (${email})`,
   });
 
   return jsonNoStore(

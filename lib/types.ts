@@ -1,6 +1,6 @@
 export type PortalRole = "erp_owner" | "it_ceo" | "bd_ceo" | "staff";
 
-export type StaffStatus = "active" | "free" | "busy" | "not_available";
+export type StaffStatus = "working" | "free" | "offline" | "active";
 
 export type AttendanceStatus =
   | "present"
@@ -13,7 +13,7 @@ export type LeaveStatus = "pending" | "approved" | "rejected";
 
 export type TaskPriority = "normal" | "high" | "urgent";
 
-export type TaskStatus = "pending" | "in_progress" | "completed";
+export type TaskStatus = "pending" | "working" | "submitted" | "completed";
 
 export type CurrencyCode = "PKR" | "USD" | "AED" | "GBP" | "EUR";
 
@@ -86,6 +86,11 @@ export interface UserRecord {
   bio: string;
   freeTime: string;
   staffStatus: StaffStatus;
+  acceptedTasksCount?: number;
+  completedTasksCount?: number;
+  presentDaysCount?: number;
+  totalTrackedDays?: number;
+  attendanceRate?: number;
   todayAttendanceStatus?: AttendanceStatus | null;
   todayCheckIn?: string | null;
   todayCheckOut?: string | null;
@@ -171,7 +176,10 @@ export interface TaskRecord {
   status: TaskStatus;
   dueDate: string | null;
   referenceLink: string;
+  submissionLink: string;
   completionNote: string;
+  acceptedAt: string | null;
+  submittedAt: string | null;
   assignedToId: string;
   assignedToName: string;
   assignedById: string | null;
@@ -217,8 +225,8 @@ export interface OverviewResponse {
     totalStaff: number;
     activeStaff: number;
     freeStaff: number;
-    busyStaff: number;
-    unavailableStaff: number;
+    workingStaff: number;
+    offlineStaff: number;
     todayDate: string;
     presentToday: number;
     lateToday: number;

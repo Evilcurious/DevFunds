@@ -1,18 +1,19 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Check,
+  ExternalLink,
   FolderPlus,
-  KeyRound,
   Pencil,
   Plus,
-  Save,
   Split,
   Trash2,
   UserPlus,
   X,
 } from "lucide-react";
+import { AccountSettingsPanel } from "@/components/account-settings-panel";
 import { useApp } from "@/components/app-context";
 import { EarningModal } from "@/components/modals/earning-modal";
 import { SectionModal } from "@/components/modals/section-modal";
@@ -35,7 +36,7 @@ import type {
   UserRecord,
 } from "@/lib/types";
 
-type TabId = "inbox" | "spending" | "customers" | "staff" | "studio";
+type TabId = "inbox" | "spending" | "customers" | "staff" | "account" | "studio";
 
 export function AdminPortalView() {
   const { user, settings, t, toast } = useApp();
@@ -71,9 +72,6 @@ export function AdminPortalView() {
   const [secMode, setSecMode] = useState<"create" | "divide">("create");
 
   const [taskModal, setTaskModal] = useState(false);
-
-  const [myNewPassword, setMyNewPassword] = useState("");
-  const [savingPw, setSavingPw] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -130,9 +128,9 @@ export function AdminPortalView() {
 
   if (!user) return null;
 
-  const pendingLeavesCount = leaves.filter(
-    (l) => l.status === "pending"
-  ).length;
+  const pendingActionCount =
+    leaves.filter((l) => l.status === "pending").length +
+    tasks.filter((tk) => tk.status === "submitted").length;
 
   const handleLeaveDecision = async (
     lv: LeaveRequestRecord,
@@ -145,6 +143,27 @@ export function AdminPortalView() {
     });
     if (res.ok) {
       toast(decision === "approved" ? t("approved") : t("rejected"));
+      loadWorkspace();
+    }
+  };
+
+  // CEO reviews submitted task AND sets member's status directly!
+  const handleCeoReviewWork = async (
+    tk: TaskRecord,
+    nextStaffStatus: StaffStatus
+  ) => {
+    const res = await fetch(`/api/tasks/${tk.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "completed",
+        nextStaffStatus,
+      }),
+    });
+    if (res.ok) {
+      toast(
+        `Approved & set ${tk.assignedToName} → ${STAFF_STATUS_META[nextStaffStatus].label}`
+      );
       loadWorkspace();
     }
   };
@@ -191,28 +210,9 @@ export function AdminPortalView() {
     }
   };
 
-  const handleCeoPasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!myNewPassword.trim()) return;
-    setSavingPw(true);
-    try {
-      const res = await fetch("/api/auth/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newPassword: myNewPassword.trim() }),
-      });
-      if (res.ok) {
-        setMyNewPassword("");
-        toast("Password updated!");
-      }
-    } finally {
-      setSavingPw(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Quick Action Bar */}
+      {/* Portal Navigation Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -223,7 +223,7 @@ export function AdminPortalView() {
             }`}
           >
             {t("inbox")}
-            {pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
+            {pendingActionCount > 0 ? ` (${pendingActionCount})` : ""}
           </button>
 
           <button
@@ -258,13 +258,25 @@ export function AdminPortalView() {
 
           <button
             type="button"
-            onClick={() => setTab("studio")}
+            onClick={() => setTab("account")}
             className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
-              tab === "studio" ? "royal-btn" : "royal-btn-outline"
+              tab === "account" ? "royal-btn" : "royal-btn-outline"
             }`}
           >
-            {isOwner ? t("brandStudio") : t("settings")}
+            {t("accountSettings")}
           </button>
+
+          {isOwner && (
+            <button
+              type="button"
+              onClick={() => setTab("studio")}
+              className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+                tab === "studio" ? "royal-btn" : "royal-btn-outline"
+              }`}
+            >
+              {t("brandStudio")}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -308,8 +320,109 @@ export function AdminPortalView() {
           ...
         </div>
       ) : tab === "inbox" ? (
-        /* INBOX: Leave Approvals + Assigned Todo Work */
+        /* INBOX: Submitted Work from Team Members + Leave Approvals */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Submitted & Active Department Work */}
+          <div className="royal-card rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+              <h2 className="text-base font-bold">
+                {t("todo")} & Submissions
+              </h2>
+              <button
+                type="button"
+                onClick={() => setTaskModal(true)}
+                className="royal-btn rounded-lg px-3 py-1 text-xs inline-flex items-center gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>{t("assignWork")}</span>
+              </button>
+            </div>
+
+            {tasks.length === 0 ? (
+              <p className="py-8 text-center text-xs text-muted-royal">
+                {t("noRecords")}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {tasks.slice(0, 15).map((tk) => (
+                  <div
+                    key={tk.id}
+                    className="royal-elevated rounded-xl p-4 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <Link
+                        href={`/staff/${tk.assignedToId}`}
+                        className="gold-accent font-bold hover:underline"
+                      >
+                        {tk.sectionSlug.toUpperCase()} · {tk.assignedToName}
+                      </Link>
+                      <span
+                        className={`font-bold uppercase ${
+                          tk.status === "completed"
+                            ? "text-emerald-400"
+                            : tk.status === "submitted"
+                            ? "text-sky-300"
+                            : tk.status === "working"
+                            ? "text-amber-300"
+                            : "text-muted-royal"
+                        }`}
+                      >
+                        {tk.status}
+                      </span>
+                    </div>
+
+                    <div className="text-sm font-bold">{tk.title}</div>
+
+                    {tk.completionNote && (
+                      <p className="text-xs text-muted-royal">
+                        {tk.completionNote}
+                      </p>
+                    )}
+
+                    {tk.submissionLink && (
+                      <a
+                        href={tk.submissionLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs gold-accent hover:underline font-bold"
+                      >
+                        <span>View Submitted Work</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+
+                    {tk.status !== "completed" && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
+                        <button
+                          type="button"
+                          onClick={() => handleCeoReviewWork(tk, "free")}
+                          className="royal-btn rounded-lg px-2.5 py-1 text-xs"
+                        >
+                          Approve → Free
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCeoReviewWork(tk, "working")}
+                          className="royal-btn-outline rounded-lg px-2.5 py-1 text-xs"
+                        >
+                          Approve → Working
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCeoReviewWork(tk, "offline")}
+                          className="royal-btn-outline rounded-lg px-2.5 py-1 text-xs"
+                        >
+                          Approve → Offline
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Leave Requests Approval Queue */}
           <div className="royal-card rounded-2xl p-6 space-y-4">
             <h2 className="text-base font-bold border-b border-[var(--border-subtle)] pb-3">
               {t("leaveRequests")}
@@ -378,53 +491,6 @@ export function AdminPortalView() {
               </div>
             )}
           </div>
-
-          <div className="royal-card rounded-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
-              <h2 className="text-base font-bold">{t("todo")}</h2>
-              <button
-                type="button"
-                onClick={() => setTaskModal(true)}
-                className="royal-btn rounded-lg px-3 py-1 text-xs inline-flex items-center gap-1"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>{t("assignWork")}</span>
-              </button>
-            </div>
-
-            {tasks.length === 0 ? (
-              <p className="py-8 text-center text-xs text-muted-royal">
-                {t("noRecords")}
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {tasks.slice(0, 12).map((tk) => (
-                  <div
-                    key={tk.id}
-                    className="royal-elevated rounded-xl p-4 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="gold-accent font-bold">
-                        {tk.sectionSlug.toUpperCase()} · {tk.assignedToName}
-                      </span>
-                      <span
-                        className={`font-bold uppercase ${
-                          tk.status === "completed"
-                            ? "text-emerald-400"
-                            : tk.status === "in_progress"
-                            ? "text-sky-300"
-                            : "text-muted-royal"
-                        }`}
-                      >
-                        {tk.status}
-                      </span>
-                    </div>
-                    <div className="text-sm font-bold">{tk.title}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       ) : tab === "spending" ? (
         <div className="space-y-4">
@@ -437,7 +503,6 @@ export function AdminPortalView() {
               <SpendingTopUpCard
                 key={rec.id}
                 record={rec}
-                currency={settings.currency}
                 timezone={settings.timezone}
                 canEdit
                 canDelete
@@ -461,7 +526,6 @@ export function AdminPortalView() {
               <EarningTopUpCard
                 key={rec.id}
                 record={rec}
-                currency={settings.currency}
                 timezone={settings.timezone}
                 canEdit
                 canDelete
@@ -531,13 +595,22 @@ export function AdminPortalView() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-base">{acc.name}</span>
+                        <Link
+                          href={`/staff/${acc.id}`}
+                          className="font-bold text-base hover:underline"
+                        >
+                          {acc.name}
+                        </Link>
                         <span className="text-[11px] font-bold uppercase gold-accent">
                           {PORTAL_META[acc.portalRole].shortTitle}
                         </span>
                       </div>
                       <p className="text-xs text-muted-royal">
                         {acc.jobTitle} · {acc.email}
+                      </p>
+                      <p className="text-xs text-muted-royal mt-1">
+                        Accepted: {acc.acceptedTasksCount ?? 0} · Attendance:{" "}
+                        {acc.attendanceRate ?? 0}%
                       </p>
                     </div>
 
@@ -567,12 +640,7 @@ export function AdminPortalView() {
                   {acc.portalRole === "staff" && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {(
-                        [
-                          "active",
-                          "free",
-                          "busy",
-                          "not_available",
-                        ] as StaffStatus[]
+                        ["working", "free", "offline", "active"] as StaffStatus[]
                       ).map((st) => (
                         <button
                           key={st}
@@ -594,34 +662,10 @@ export function AdminPortalView() {
             </div>
           )}
         </div>
-      ) : isOwner ? (
-        <OwnerStudioPanel />
+      ) : tab === "account" ? (
+        <AccountSettingsPanel />
       ) : (
-        <form
-          onSubmit={handleCeoPasswordChange}
-          className="royal-card max-w-md rounded-2xl p-6 space-y-4"
-        >
-          <h3 className="text-base font-bold flex items-center gap-2">
-            <KeyRound className="h-4 w-4 gold-accent" />
-            <span>{t("password")}</span>
-          </h3>
-          <input
-            type="password"
-            minLength={6}
-            placeholder="New password"
-            value={myNewPassword}
-            onChange={(e) => setMyNewPassword(e.target.value)}
-            className="royal-input w-full"
-          />
-          <button
-            type="submit"
-            disabled={savingPw}
-            className="royal-btn rounded-xl px-5 py-2 text-sm inline-flex items-center gap-2"
-          >
-            <Save className="h-4 w-4" />
-            <span>{t("save")}</span>
-          </button>
-        </form>
+        isOwner && <OwnerStudioPanel />
       )}
 
       {/* Modals */}

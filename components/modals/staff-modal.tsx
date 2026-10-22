@@ -39,7 +39,7 @@ export function StaffModal({
   const [skillsText, setSkillsText] = useState("");
   const [bio, setBio] = useState("");
   const [freeTime, setFreeTime] = useState("");
-  const [staffStatus, setStaffStatus] = useState<StaffStatus>("active");
+  const [staffStatus, setStaffStatus] = useState<StaffStatus>("free");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -73,7 +73,7 @@ export function StaffModal({
       setSkillsText("");
       setBio("");
       setFreeTime("");
-      setStaffStatus("active");
+      setStaffStatus("free");
     }
   }, [open, editing, lockedSection, defaultSectionSlug, sections]);
 
@@ -265,10 +265,10 @@ export function StaffModal({
                 onChange={(e) => setStaffStatus(e.target.value as StaffStatus)}
                 className="royal-input w-full"
               >
-                <option value="active">Active</option>
                 <option value="free">Free</option>
-                <option value="busy">Busy</option>
-                <option value="not_available">Not Available</option>
+                <option value="working">Working</option>
+                <option value="offline">Offline</option>
+                <option value="active">Active</option>
               </select>
             </div>
           </div>

@@ -6,14 +6,13 @@ import { Plus, Search } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { SpendingModal } from "@/components/modals/spending-modal";
 import { SpendingTopUpCard } from "@/components/topup-cards";
-import { formatMoney } from "@/lib/format";
 import type { SectionRecord, SpendingRecord } from "@/lib/types";
 
 function SpendingContent() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab") || "total";
 
-  const { user, settings, t, toast } = useApp();
+  const { user, settings, money, t, toast } = useApp();
   const [activeTab, setActiveTab] = useState<string>(
     ["bd", "it", "total"].includes(initialTab) ? initialTab : "total"
   );
@@ -127,7 +126,7 @@ function SpendingContent() {
             BD ({totals.bdEntries})
           </div>
           <div className="mt-2 text-2xl font-bold tabular-nums">
-            {formatMoney(totals.bdSpending, settings.currency)}
+            {money(totals.bdSpending)}
           </div>
         </button>
 
@@ -145,7 +144,7 @@ function SpendingContent() {
             IT ({totals.itEntries})
           </div>
           <div className="mt-2 text-2xl font-bold tabular-nums">
-            {formatMoney(totals.itSpending, settings.currency)}
+            {money(totals.itSpending)}
           </div>
         </button>
 
@@ -163,7 +162,7 @@ function SpendingContent() {
             {t("allSpending")} ({totals.totalEntries})
           </div>
           <div className="mt-2 text-2xl font-bold tabular-nums">
-            {formatMoney(totals.totalSpending, settings.currency)}
+            {money(totals.totalSpending)}
           </div>
         </button>
       </div>
@@ -195,7 +194,6 @@ function SpendingContent() {
             <SpendingTopUpCard
               key={rec.id}
               record={rec}
-              currency={settings.currency}
               timezone={settings.timezone}
               canEdit={canEditRecord(rec)}
               canDelete={canEditRecord(rec)}

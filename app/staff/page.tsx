@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
+  ArrowUpRight,
   Clock,
   FolderPlus,
   Mail,
@@ -120,7 +122,6 @@ export default function StaffDirectoryPage() {
 
   return (
     <div className="space-y-7">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
@@ -299,14 +300,17 @@ export default function StaffDirectoryPage() {
                         >
                           <div className="space-y-3">
                             <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <h3 className="truncate text-base font-bold">
+                              <Link
+                                href={`/staff/${member.id}`}
+                                className="min-w-0 group"
+                              >
+                                <h3 className="truncate text-base font-bold group-hover:underline">
                                   {member.name}
                                 </h3>
                                 <p className="truncate text-xs gold-accent">
                                   {member.jobTitle}
                                 </p>
-                              </div>
+                              </Link>
 
                               <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border-subtle)] px-2.5 py-0.5 text-[11px] font-semibold">
                                 <span
@@ -315,6 +319,33 @@ export default function StaffDirectoryPage() {
                                 />
                                 {lang === "ur" ? st.urduLabel : st.label}
                               </span>
+                            </div>
+
+                            {/* Live Public Stats Pills: Accepted Todo Tasks + Attendance Rate */}
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                              <Link
+                                href={`/staff/${member.id}`}
+                                className="royal-card rounded-xl py-2 px-2 hover:border-[var(--accent-primary)] transition-colors"
+                              >
+                                <div className="text-base font-bold tabular-nums gold-accent">
+                                  {member.acceptedTasksCount ?? 0}
+                                </div>
+                                <div className="text-[10px] text-muted-royal">
+                                  {t("tasksAccepted")}
+                                </div>
+                              </Link>
+
+                              <Link
+                                href={`/staff/${member.id}`}
+                                className="royal-card rounded-xl py-2 px-2 hover:border-[var(--accent-primary)] transition-colors"
+                              >
+                                <div className="text-base font-bold tabular-nums text-emerald-400">
+                                  {member.attendanceRate ?? 0}%
+                                </div>
+                                <div className="text-[10px] text-muted-royal">
+                                  {t("attendanceRate")}
+                                </div>
+                              </Link>
                             </div>
 
                             <div className="space-y-1 text-xs text-muted-royal">
@@ -340,14 +371,14 @@ export default function StaffDirectoryPage() {
                             </div>
 
                             {member.bio && (
-                              <p className="text-xs text-muted-royal line-clamp-3">
+                              <p className="text-xs text-muted-royal line-clamp-2">
                                 {member.bio}
                               </p>
                             )}
 
                             {member.skills.length > 0 && (
                               <div className="flex flex-wrap gap-1.5 pt-1">
-                                {member.skills.map((skill, idx) => (
+                                {member.skills.slice(0, 6).map((skill, idx) => (
                                   <span
                                     key={`${skill}-${idx}`}
                                     className="rounded-md border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] font-medium"
@@ -359,27 +390,33 @@ export default function StaffDirectoryPage() {
                             )}
                           </div>
 
-                          {canManageSec && (
-                            <div className="flex items-center justify-between gap-2 pt-3 border-t border-[var(--border-subtle)]">
-                              <select
-                                value={member.staffStatus}
-                                onChange={(e) =>
-                                  handleQuickStatusChange(
-                                    member,
-                                    e.target.value as StaffStatus
-                                  )
-                                }
-                                className="royal-input py-1 px-2 text-xs"
-                              >
-                                <option value="active">Active</option>
-                                <option value="free">Free</option>
-                                <option value="busy">Busy</option>
-                                <option value="not_available">
-                                  Not Available
-                                </option>
-                              </select>
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[var(--border-subtle)]">
+                            <Link
+                              href={`/staff/${member.id}`}
+                              className="inline-flex items-center gap-1 text-xs font-bold gold-accent hover:underline"
+                            >
+                              <span>{t("viewProfile")}</span>
+                              <ArrowUpRight className="h-3.5 w-3.5" />
+                            </Link>
 
+                            {canManageSec && (
                               <div className="flex items-center gap-1">
+                                <select
+                                  value={member.staffStatus}
+                                  onChange={(e) =>
+                                    handleQuickStatusChange(
+                                      member,
+                                      e.target.value as StaffStatus
+                                    )
+                                  }
+                                  className="royal-input py-1 px-2 text-xs"
+                                >
+                                  <option value="free">Free</option>
+                                  <option value="working">Working</option>
+                                  <option value="offline">Offline</option>
+                                  <option value="active">Active</option>
+                                </select>
+
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -398,8 +435,8 @@ export default function StaffDirectoryPage() {
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
                       );
                     })}

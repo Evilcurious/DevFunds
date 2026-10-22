@@ -1,18 +1,33 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  ExternalLink,
+  Play,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { TaskModal } from "@/components/modals/task-modal";
-import type { TaskRecord, TaskStatus, UserRecord } from "@/lib/types";
+import type { StaffStatus, TaskRecord, UserRecord } from "@/lib/types";
 
 export default function TodoChannelPage() {
-  const { user, t, toast } = useApp();
+  const { user, refreshSession, t, toast } = useApp();
   const [channel, setChannel] = useState<"bd" | "it">("bd");
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [staffList, setStaffList] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Inline "Submit Work to CEO" state
+  const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
+  const [submissionLink, setSubmissionLink] = useState("");
+  const [completionNote, setCompletionNote] = useState("");
+  const [afterSubmitStatus, setAfterSubmitStatus] =
+    useState<StaffStatus>("free");
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -35,6 +50,9 @@ export default function TodoChannelPage() {
   useEffect(() => {
     if (user?.portalRole === "it_ceo") setChannel("it");
     if (user?.portalRole === "bd_ceo") setChannel("bd");
+    if (user?.portalRole === "staff" && user.sectionSlug === "it") {
+      setChannel("it");
+    }
   }, [user]);
 
   const canAssignInChannel =
@@ -42,14 +60,57 @@ export default function TodoChannelPage() {
     (user?.portalRole === "bd_ceo" && channel === "bd") ||
     (user?.portalRole === "it_ceo" && channel === "it");
 
-  const handleStatusChange = async (task: TaskRecord, status: TaskStatus) => {
+  // Team member selects a task -> automatically sets their status to "Working"!
+  const handleSelectTask = async (task: TaskRecord) => {
     const res = await fetch(`/api/tasks/${task.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status: "working" }),
     });
     if (res.ok) {
-      toast("Updated");
+      await refreshSession();
+      toast("Task selected — your status is now Working!");
+      loadTasks();
+    }
+  };
+
+  // Team member submits work to CEO -> notifies CEO + sets member status (Free / Offline / Working)
+  const handleSubmitWorkToCeo = async (task: TaskRecord) => {
+    const res = await fetch(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "submitted",
+        submissionLink,
+        completionNote,
+        nextStaffStatus: afterSubmitStatus,
+      }),
+    });
+    if (res.ok) {
+      setSubmittingTaskId(null);
+      setSubmissionLink("");
+      setCompletionNote("");
+      await refreshSession();
+      toast("Work submitted to CEO!");
+      loadTasks();
+    }
+  };
+
+  // CEO approves work + optionally updates member's status directly!
+  const handleCeoReviewTask = async (
+    task: TaskRecord,
+    nextStaffStatus?: StaffStatus
+  ) => {
+    const res = await fetch(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "completed",
+        ...(nextStaffStatus ? { nextStaffStatus } : {}),
+      }),
+    });
+    if (res.ok) {
+      toast("Work approved & status updated!");
       loadTasks();
     }
   };
@@ -136,13 +197,12 @@ export default function TodoChannelPage() {
       ) : (
         <div className="space-y-4">
           {visibleTasks.map((task) => {
-            const canModify =
-              canAssignInChannel || user?.id === task.assignedToId;
+            const isAssignee = user?.id === task.assignedToId;
 
             return (
               <div
                 key={task.id}
-                className="royal-card rounded-2xl p-5 space-y-3"
+                className="royal-card rounded-2xl p-5 space-y-3.5"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -158,12 +218,15 @@ export default function TodoChannelPage() {
                       >
                         {task.priority}
                       </span>
-                      <span className="text-xs gold-accent font-semibold">
+                      <Link
+                        href={`/staff/${task.assignedToId}`}
+                        className="text-xs gold-accent font-bold hover:underline"
+                      >
                         → {task.assignedToName}
-                      </span>
+                      </Link>
                       {task.dueDate && (
                         <span className="text-xs text-muted-royal tabular-nums">
-                          · Due {task.dueDate}
+                          · {task.dueDate}
                         </span>
                       )}
                     </div>
@@ -174,19 +237,17 @@ export default function TodoChannelPage() {
                     className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold uppercase ${
                       task.status === "completed"
                         ? "bg-emerald-500/15 text-emerald-400"
-                        : task.status === "in_progress"
+                        : task.status === "submitted"
                         ? "bg-sky-500/15 text-sky-300"
+                        : task.status === "working"
+                        ? "bg-amber-500/15 text-amber-300"
                         : "royal-elevated text-muted-royal"
                     }`}
                   >
                     {task.status === "completed" && (
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     )}
-                    {task.status === "completed"
-                      ? t("completed")
-                      : task.status === "in_progress"
-                      ? t("inProgress")
-                      : t("pending")}
+                    {task.status}
                   </span>
                 </div>
 
@@ -196,9 +257,76 @@ export default function TodoChannelPage() {
                   </p>
                 )}
 
-                {task.completionNote && (
-                  <div className="text-xs text-emerald-400">
-                    ✓ {task.completionNote}
+                {(task.submissionLink || task.completionNote) && (
+                  <div className="royal-elevated rounded-xl p-3.5 space-y-1 text-xs">
+                    {task.completionNote && (
+                      <p className="font-medium">{task.completionNote}</p>
+                    )}
+                    {task.submissionLink && (
+                      <a
+                        href={task.submissionLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 gold-accent hover:underline font-bold"
+                      >
+                        <span>Submitted Work: {task.submissionLink}</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Inline Submit Work Form when clicked by Assignee */}
+                {isAssignee && submittingTaskId === task.id && (
+                  <div className="royal-elevated rounded-xl p-4 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="Work Link (https://...)"
+                        value={submissionLink}
+                        onChange={(e) => setSubmissionLink(e.target.value)}
+                        className="royal-input w-full text-xs"
+                      />
+                      <select
+                        value={afterSubmitStatus}
+                        onChange={(e) =>
+                          setAfterSubmitStatus(e.target.value as StaffStatus)
+                        }
+                        className="royal-input w-full text-xs"
+                      >
+                        <option value="free">My Status After Submit: Free</option>
+                        <option value="offline">
+                          My Status After Submit: Offline
+                        </option>
+                        <option value="working">
+                          My Status After Submit: Working
+                        </option>
+                      </select>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Summary note for CEO..."
+                      value={completionNote}
+                      onChange={(e) => setCompletionNote(e.target.value)}
+                      className="royal-input w-full text-xs"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSubmittingTaskId(null)}
+                        className="royal-btn-outline rounded-lg px-3 py-1.5 text-xs"
+                      >
+                        {t("cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSubmitWorkToCeo(task)}
+                        className="royal-btn rounded-lg px-4 py-1.5 text-xs inline-flex items-center gap-1.5"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        <span>{t("submitWork")}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -212,46 +340,57 @@ export default function TodoChannelPage() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 gold-accent hover:underline"
                       >
-                        <span>Link</span>
+                        <span>Reference</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
                   </div>
 
-                  {canModify && (
-                    <div className="flex items-center gap-1.5">
-                      {(
-                        [
-                          ["pending", t("pending")],
-                          ["in_progress", t("inProgress")],
-                          ["completed", t("completed")],
-                        ] as Array<[TaskStatus, string]>
-                      ).map(([st, label]) => (
-                        <button
-                          key={st}
-                          type="button"
-                          onClick={() => handleStatusChange(task, st)}
-                          className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                            task.status === st
-                              ? "royal-btn"
-                              : "royal-btn-outline"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {isAssignee && task.status === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectTask(task)}
+                        className="royal-btn rounded-lg px-3 py-1.5 text-xs inline-flex items-center gap-1.5"
+                      >
+                        <Play className="h-3 w-3" />
+                        <span>{t("selectTask")}</span>
+                      </button>
+                    )}
 
-                      {canAssignInChannel && (
+                    {isAssignee &&
+                      task.status === "working" &&
+                      submittingTaskId !== task.id && (
                         <button
                           type="button"
-                          onClick={() => handleDeleteTask(task)}
-                          className="royal-btn-outline rounded-lg p-1.5 text-rose-400"
+                          onClick={() => setSubmittingTaskId(task.id)}
+                          className="royal-btn rounded-lg px-3 py-1.5 text-xs inline-flex items-center gap-1.5"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Send className="h-3 w-3" />
+                          <span>{t("submitWork")}</span>
                         </button>
                       )}
-                    </div>
-                  )}
+
+                    {canAssignInChannel && task.status !== "completed" && (
+                      <button
+                        type="button"
+                        onClick={() => handleCeoReviewTask(task, "free")}
+                        className="royal-btn rounded-lg px-3 py-1.5 text-xs"
+                      >
+                        {t("approveWork")} & Set Free
+                      </button>
+                    )}
+
+                    {canAssignInChannel && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task)}
+                        className="royal-btn-outline rounded-lg p-1.5 text-rose-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

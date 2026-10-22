@@ -8,8 +8,8 @@ import type {
 } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  companyName: "DevFunds",
-  logoUrl: "",
+  companyName: "DEVZARD",
+  logoUrl: "/devzard-logo.png",
   currency: "PKR",
   timezone: "Asia/Karachi",
   language: "en",
@@ -20,15 +20,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customFonts: [],
 };
 
+// Approximate PKR value per 1 unit of currency for seamless visitor multi-currency switching
 export const CURRENCIES: Record<
   CurrencyCode,
-  { code: CurrencyCode; symbol: string; label: string }
+  { code: CurrencyCode; symbol: string; label: string; pkrRate: number }
 > = {
-  PKR: { code: "PKR", symbol: "Rs.", label: "PKR (Rs.)" },
-  USD: { code: "USD", symbol: "$", label: "USD ($)" },
-  AED: { code: "AED", symbol: "AED", label: "AED" },
-  GBP: { code: "GBP", symbol: "£", label: "GBP (£)" },
-  EUR: { code: "EUR", symbol: "€", label: "EUR (€)" },
+  PKR: { code: "PKR", symbol: "Rs.", label: "PKR (Rs.)", pkrRate: 1 },
+  USD: { code: "USD", symbol: "$", label: "USD ($)", pkrRate: 278.5 },
+  AED: { code: "AED", symbol: "AED", label: "AED", pkrRate: 75.8 },
+  GBP: { code: "GBP", symbol: "£", label: "GBP (£)", pkrRate: 361.0 },
+  EUR: { code: "EUR", symbol: "€", label: "EUR (€)", pkrRate: 303.0 },
 };
 
 export const PORTAL_META: Record<
@@ -80,11 +81,11 @@ export const STAFF_STATUS_META: Record<
     dotColor: string;
   }
 > = {
-  active: {
-    value: "active",
-    label: "Active",
-    urduLabel: "فعال",
-    dotColor: "#10B981",
+  working: {
+    value: "working",
+    label: "Working",
+    urduLabel: "کام کر رہا ہے",
+    dotColor: "#F59E0B",
   },
   free: {
     value: "free",
@@ -92,17 +93,17 @@ export const STAFF_STATUS_META: Record<
     urduLabel: "فارغ",
     dotColor: "#38BDF8",
   },
-  busy: {
-    value: "busy",
-    label: "Busy",
-    urduLabel: "مصروف",
-    dotColor: "#F59E0B",
+  active: {
+    value: "active",
+    label: "Active",
+    urduLabel: "فعال",
+    dotColor: "#10B981",
   },
-  not_available: {
-    value: "not_available",
-    label: "Not Available",
-    urduLabel: "غیر دستیاب",
-    dotColor: "#EF4444",
+  offline: {
+    value: "offline",
+    label: "Offline",
+    urduLabel: "آف لائن",
+    dotColor: "#64748B",
   },
 };
 
@@ -170,7 +171,7 @@ export const INITIAL_PORTAL_ACCOUNTS = [
     email: "bd.ceo@devzard.app",
     defaultPassword: "BdCeo@123",
     portalRole: "bd_ceo" as PortalRole,
-    jobTitle: "BD CEO",
     sectionSlug: "bd",
+    jobTitle: "BD CEO",
   },
 ] as const;

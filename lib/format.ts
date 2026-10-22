@@ -1,24 +1,43 @@
 import { CURRENCIES } from "./constants";
 import type { CurrencyCode } from "./types";
 
+export function convertCurrencyAmount(
+  amount: number,
+  fromCurrency: CurrencyCode = "PKR",
+  toCurrency: CurrencyCode = "PKR"
+): number {
+  const safe = Number.isFinite(amount) ? amount : 0;
+  if (fromCurrency === toCurrency) return safe;
+  const fromRate = CURRENCIES[fromCurrency]?.pkrRate ?? 1;
+  const toRate = CURRENCIES[toCurrency]?.pkrRate ?? 1;
+  const inPkr = safe * fromRate;
+  return inPkr / toRate;
+}
+
 export function formatMoney(
   amount: number,
-  currency: CurrencyCode = "PKR"
+  toCurrency: CurrencyCode = "PKR",
+  fromCurrency?: CurrencyCode
 ): string {
-  const meta = CURRENCIES[currency] ?? CURRENCIES.PKR;
-  const safe = Number.isFinite(amount) ? amount : 0;
+  const converted = fromCurrency
+    ? convertCurrencyAmount(amount, fromCurrency, toCurrency)
+    : amount;
+  const meta = CURRENCIES[toCurrency] ?? CURRENCIES.PKR;
+  const safe = Number.isFinite(converted) ? converted : 0;
   const isNegative = safe < 0;
   const abs = Math.abs(safe);
+  const rounded = Math.round(abs * 100) / 100;
   const formatted = new Intl.NumberFormat(
-    currency === "PKR" ? "en-PK" : "en-US",
+    toCurrency === "PKR" ? "en-PK" : "en-US",
     {
-      minimumFractionDigits: abs % 1 === 0 ? 0 : 2,
+      minimumFractionDigits: rounded % 1 === 0 ? 0 : 2,
       maximumFractionDigits: 2,
     }
-  ).format(abs);
-  const prefix = meta.symbol.endsWith(".") || meta.symbol.length > 1
-    ? `${meta.symbol} `
-    : meta.symbol;
+  ).format(rounded);
+  const prefix =
+    meta.symbol.endsWith(".") || meta.symbol.length > 1
+      ? `${meta.symbol} `
+      : meta.symbol;
   return `${isNegative ? "-" : ""}${prefix}${formatted}`;
 }
 

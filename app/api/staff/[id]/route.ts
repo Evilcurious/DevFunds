@@ -5,18 +5,90 @@ import {
   jsonNoStore,
   logAudit,
 } from "@/lib/auth";
+import { ensureBootstrapped } from "@/lib/bootstrap";
 import { one, rawQuery, toNum } from "@/lib/db";
-import { mapUserRow } from "@/lib/mappers";
+import { mapTaskRow, mapUserRow } from "@/lib/mappers";
 import type { PortalRole, StaffStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const VALID_STATUSES: StaffStatus[] = [
-  "active",
+  "working",
   "free",
-  "busy",
-  "not_available",
+  "offline",
+  "active",
 ];
+
+// Public Staff Profile endpoint — anyone can view accepted todo tasks & attendance rate!
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  await ensureBootstrapped();
+  const { id } = await context.params;
+
+  const userRow = await one<Record<string, unknown>>(
+    `SELECT u.*,
+            s.name AS section_name,
+            (SELECT COUNT(*)::int
+             FROM df_tasks tk
+             WHERE tk.assigned_to_id = u.id
+               AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
+            ) AS accepted_tasks_count,
+            (SELECT COUNT(*)::int
+             FROM df_tasks tk2
+             WHERE tk2.assigned_to_id = u.id
+               AND tk2.status IN ('submitted', 'completed')
+            ) AS completed_tasks_count,
+            (SELECT COUNT(*)::int
+             FROM df_attendance att
+             WHERE att.user_id = u.id
+               AND att.status IN ('present', 'late', 'half_day')
+            ) AS present_days_count,
+            (SELECT COUNT(*)::int
+             FROM df_attendance att2
+             WHERE att2.user_id = u.id
+               AND att2.status IN ('present', 'late', 'half_day', 'absent')
+            ) AS total_tracked_days
+     FROM df_users u
+     LEFT JOIN df_sections s ON s.slug = u.section_slug
+     WHERE u.id = $1`,
+    [id]
+  );
+
+  if (!userRow) {
+    return jsonNoStore({ error: "Profile not found." }, 404);
+  }
+
+  const [taskRows, attendanceRows] = await Promise.all([
+    rawQuery<Record<string, unknown>>(
+      `SELECT * FROM df_tasks
+       WHERE assigned_to_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+      [id]
+    ),
+    rawQuery<Record<string, unknown>>(
+      `SELECT work_date, status, check_in, check_out
+       FROM df_attendance
+       WHERE user_id = $1
+       ORDER BY work_date DESC
+       LIMIT 30`,
+      [id]
+    ),
+  ]);
+
+  return jsonNoStore({
+    profile: mapUserRow(userRow),
+    tasks: taskRows.map(mapTaskRow),
+    attendanceHistory: attendanceRows.map((r) => ({
+      workDate: String(r.work_date),
+      status: String(r.status),
+      checkIn: r.check_in ? String(r.check_in) : null,
+      checkOut: r.check_out ? String(r.check_out) : null,
+    })),
+  });
+}
 
 export async function PATCH(
   request: Request,
@@ -41,11 +113,6 @@ export async function PATCH(
     ? String(target.section_slug)
     : null;
 
-  // Enforce strict portal boundaries:
-  // - erp_owner can edit ANY account (staff or CEOs)
-  // - it_ceo can ONLY edit staff belonging to 'it'
-  // - bd_ceo can ONLY edit staff belonging to 'bd'
-  // - staff cannot edit others via /api/staff/[id] (they use PATCH /api/auth/me)
   if (actor.portalRole !== "erp_owner") {
     if (
       targetRole !== "staff" ||
@@ -114,7 +181,7 @@ export async function PATCH(
       ? body.freeTime.trim()
       : String(target.free_time ?? "");
 
-  let nextStatus = (target.staff_status as StaffStatus) || "active";
+  let nextStatus = (target.staff_status as StaffStatus) || "free";
   if (body.staffStatus !== undefined) {
     if (!VALID_STATUSES.includes(body.staffStatus)) {
       return jsonNoStore({ error: "Invalid staff status." }, 400);
@@ -122,7 +189,6 @@ export async function PATCH(
     nextStatus = body.staffStatus;
   }
 
-  // Only ERP Owner can reassign staff across sections
   let nextSection = targetSection;
   if (actor.portalRole === "erp_owner" && body.sectionSlug !== undefined) {
     nextSection = body.sectionSlug ? body.sectionSlug.trim() : null;
@@ -200,7 +266,7 @@ export async function PATCH(
     actor,
     action: "staff.updated",
     targetType: "user",
-    summary: `Updated ${nextName} (status: ${nextStatus}${nextSection ? `, section: ${nextSection.toUpperCase()}` : ""})`,
+    summary: `Updated ${nextName} (status: ${nextStatus})`,
   });
 
   return jsonNoStore({ staff: updatedRow ? mapUserRow(updatedRow) : null });
@@ -242,7 +308,7 @@ export async function DELETE(
       !canManageStaffSection(actor, targetSection)
     ) {
       return jsonNoStore(
-        { error: "Only the ERP Owner or department CEO can remove this staff member." },
+        { error: "Only ERP Owner or department CEO can remove this staff member." },
         403
       );
     }
@@ -254,7 +320,7 @@ export async function DELETE(
     actor,
     action: "staff.deleted",
     targetType: "user",
-    summary: `Removed ${String(target.name)} (${String(target.email)})`,
+    summary: `Removed ${String(target.name)}`,
   });
 
   return jsonNoStore({ ok: true });

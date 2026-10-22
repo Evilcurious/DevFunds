@@ -10,10 +10,10 @@ import type { StaffStatus } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 const VALID_STATUSES: StaffStatus[] = [
-  "active",
+  "working",
   "free",
-  "busy",
-  "not_available",
+  "offline",
+  "active",
 ];
 
 export async function GET() {
@@ -36,6 +36,8 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
+    email?: string;
+    emailPassword?: string;
     phone?: string;
     location?: string;
     skills?: string[] | string;
@@ -44,7 +46,16 @@ export async function PATCH(request: Request) {
     staffStatus?: StaffStatus;
     currentPassword?: string;
     newPassword?: string;
+    confirmPassword?: string;
   };
+
+  const existingRow = await one<Record<string, unknown>>(
+    `SELECT * FROM df_users WHERE id = $1`,
+    [user.id]
+  );
+  if (!existingRow) {
+    return jsonNoStore({ error: "Account not found." }, 404);
+  }
 
   let nextStatus = user.staffStatus;
   if (body.staffStatus !== undefined) {
@@ -60,13 +71,13 @@ export async function PATCH(request: Request) {
       nextSkills = body.skills
         .map((s) => String(s).trim())
         .filter(Boolean)
-        .slice(0, 25);
+        .slice(0, 30);
     } else if (typeof body.skills === "string") {
       nextSkills = body.skills
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
-        .slice(0, 25);
+        .slice(0, 30);
     }
   }
 
@@ -80,54 +91,102 @@ export async function PATCH(request: Request) {
   const nextFreeTime =
     body.freeTime !== undefined ? body.freeTime.trim() : user.freeTime;
 
+  let nextEmail = user.email;
   let refreshedToken: string | null = null;
+  let currentTokenVer = toNum(existingRow.token_version, 1);
 
+  // 1. Change Email (requires proving current password)
+  if (
+    body.email !== undefined &&
+    body.email.trim().toLowerCase() !== user.email.toLowerCase()
+  ) {
+    const candidateEmail = body.email.trim().toLowerCase();
+    const emailPass = String(body.emailPassword || body.currentPassword || "");
+    if (!emailPass) {
+      return jsonNoStore(
+        { error: "Enter your current password to change email." },
+        400
+      );
+    }
+    if (
+      !bcrypt.compareSync(emailPass, String(existingRow.password_hash))
+    ) {
+      return jsonNoStore(
+        { error: "Current password is incorrect." },
+        401
+      );
+    }
+    const emailExists = await one<{ id: string }>(
+      `SELECT id FROM df_users WHERE LOWER(email) = $1 AND id <> $2`,
+      [candidateEmail, user.id]
+    );
+    if (emailExists) {
+      return jsonNoStore(
+        { error: "This email address is already registered." },
+        409
+      );
+    }
+    nextEmail = candidateEmail;
+  }
+
+  // 2. Change Password (requires proving old password + matching new password twice)
   if (body.newPassword) {
-    if (body.newPassword.length < 6) {
+    const oldPw = String(body.currentPassword || "");
+    const newPw = String(body.newPassword || "");
+    const confirmPw = String(body.confirmPassword ?? body.newPassword);
+
+    if (!oldPw) {
+      return jsonNoStore(
+        { error: "Please enter your old password." },
+        400
+      );
+    }
+    if (!bcrypt.compareSync(oldPw, String(existingRow.password_hash))) {
+      return jsonNoStore({ error: "Old password is incorrect." }, 401);
+    }
+    if (newPw.length < 6) {
       return jsonNoStore(
         { error: "New password must be at least 6 characters." },
         400
       );
     }
-    const existing = await one<Record<string, unknown>>(
-      `SELECT password_hash, token_version FROM df_users WHERE id = $1`,
-      [user.id]
-    );
-    if (
-      body.currentPassword &&
-      existing &&
-      !bcrypt.compareSync(body.currentPassword, String(existing.password_hash))
-    ) {
-      return jsonNoStore({ error: "Current password is incorrect." }, 400);
+    if (newPw !== confirmPw) {
+      return jsonNoStore(
+        { error: "New password and confirm password do not match." },
+        400
+      );
     }
-    const nextVersion = toNum(existing?.token_version, 1) + 1;
-    const hash = bcrypt.hashSync(body.newPassword, 10);
+
+    currentTokenVer += 1;
+    const hash = bcrypt.hashSync(newPw, 10);
     await rawQuery(
       `UPDATE df_users
        SET password_hash = $1, token_version = $2, updated_at = NOW()
        WHERE id = $3`,
-      [hash, nextVersion, user.id]
+      [hash, currentTokenVer, user.id]
     );
     refreshedToken = await signSessionToken({
       sub: user.id,
       role: user.portalRole,
-      ver: nextVersion,
+      ver: currentTokenVer,
     });
   }
 
   await rawQuery(
     `UPDATE df_users
      SET name = $1,
-         phone = $2,
-         location = $3,
-         skills = $4::jsonb,
-         bio = $5,
-         free_time = $6,
-         staff_status = $7,
+         email = $2,
+         phone = $3,
+         location = $4,
+         skills = $5::jsonb,
+         bio = $6,
+         free_time = $7,
+         staff_status = $8,
          updated_at = NOW()
-     WHERE id = $8`,
+     WHERE id = $9`,
     [
       nextName,
+      nextEmail,
       nextPhone,
       nextLocation,
       JSON.stringify(nextSkills),
@@ -150,9 +209,9 @@ export async function PATCH(request: Request) {
 
   await logAudit({
     actor: updatedUser,
-    action: "profile.updated",
+    action: "account.updated",
     targetType: "user",
-    summary: `${updatedUser.name} updated profile (status: ${updatedUser.staffStatus})`,
+    summary: `${updatedUser.name} updated account settings (${updatedUser.staffStatus})`,
   });
 
   const res = NextResponse.json(

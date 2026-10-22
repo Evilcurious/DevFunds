@@ -12,7 +12,7 @@ import {
 import { useApp } from "@/components/app-context";
 import { AdminPortalView } from "@/components/portals/admin-portal-view";
 import { StaffPortalView } from "@/components/portals/staff-portal-view";
-import { PORTAL_META } from "@/lib/constants";
+import { PORTAL_META, STAFF_STATUS_META } from "@/lib/constants";
 import type { PortalRole } from "@/lib/types";
 
 const PORTAL_ORDER: PortalRole[] = [
@@ -39,6 +39,7 @@ export default function PortalsHubPage() {
   const {
     user,
     setUser,
+    settings,
     lang,
     t,
     loadingAuth,
@@ -96,17 +97,23 @@ export default function PortalsHubPage() {
 
   // Signed-in workspace
   if (user) {
+    const stMeta = STAFF_STATUS_META[user.staffStatus];
     return (
       <div className="space-y-6">
-        <div className="royal-card flex items-center justify-between gap-3 rounded-2xl px-5 py-3.5">
+        <div className="royal-card flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-3.5">
           <div className="flex items-center gap-2.5 text-sm font-bold">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: stMeta.dotColor }}
+            />
             <span>
               {lang === "ur"
                 ? PORTAL_META[user.portalRole].urduTitle
                 : PORTAL_META[user.portalRole].title}
             </span>
-            <span className="text-muted-royal font-normal">· {user.name}</span>
+            <span className="text-muted-royal font-normal">
+              · {user.name} ({lang === "ur" ? stMeta.urduLabel : stMeta.label})
+            </span>
           </div>
 
           <button
@@ -130,14 +137,19 @@ export default function PortalsHubPage() {
 
   const activeMeta = PORTAL_META[selectedPortal];
 
-  // Clean, Royal Portal Selector — ONLY Portal Crests & Names + Sign In
   return (
     <div className="max-w-3xl mx-auto py-6 space-y-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-          {t("portals")}
-        </h1>
-        <div className="gold-line w-28 mx-auto" />
+      <div className="flex flex-col items-center text-center space-y-3">
+        <img
+          src={
+            settings.logoUrl && settings.logoUrl !== "/devzard-logo.png"
+              ? settings.logoUrl
+              : "/devzard-logo-full.png"
+          }
+          alt={settings.companyName}
+          className="h-20 w-auto rounded-2xl bg-white p-2.5 object-contain shadow-md"
+        />
+        <div className="gold-line w-28" />
       </div>
 
       {/* 4 Clean Royal Portal Cards — Only Crest + Name */}

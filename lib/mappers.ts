@@ -17,6 +17,22 @@ import type {
   UserRecord,
 } from "./types";
 
+function normalizeStaffStatus(raw: unknown): StaffStatus {
+  const s = String(raw ?? "");
+  if (s === "working" || s === "busy") return "working";
+  if (s === "free") return "free";
+  if (s === "offline" || s === "not_available") return "offline";
+  return "active";
+}
+
+function normalizeTaskStatus(raw: unknown): TaskStatus {
+  const s = String(raw ?? "");
+  if (s === "working" || s === "in_progress") return "working";
+  if (s === "submitted") return "submitted";
+  if (s === "completed") return "completed";
+  return "pending";
+}
+
 export function mapSectionRow(row: Record<string, unknown>): SectionRecord {
   return {
     id: String(row.id),
@@ -42,6 +58,11 @@ export function mapUserRow(row: Record<string, unknown>): UserRecord {
     ? skillsRaw.map((s) => String(s).trim()).filter(Boolean)
     : [];
 
+  const presentDays = toNum(row.present_days_count, 0);
+  const totalTracked = toNum(row.total_tracked_days, 0);
+  const attendanceRate =
+    totalTracked > 0 ? Math.round((presentDays / totalTracked) * 100) : 0;
+
   return {
     id: String(row.id),
     name: String(row.name),
@@ -55,7 +76,12 @@ export function mapUserRow(row: Record<string, unknown>): UserRecord {
     skills,
     bio: String(row.bio ?? ""),
     freeTime: String(row.free_time ?? ""),
-    staffStatus: (row.staff_status as StaffStatus) || "active",
+    staffStatus: normalizeStaffStatus(row.staff_status),
+    acceptedTasksCount: toNum(row.accepted_tasks_count, 0),
+    completedTasksCount: toNum(row.completed_tasks_count, 0),
+    presentDaysCount: presentDays,
+    totalTrackedDays: totalTracked,
+    attendanceRate,
     todayAttendanceStatus: row.today_attendance_status
       ? (String(row.today_attendance_status) as AttendanceStatus)
       : null,
@@ -123,7 +149,7 @@ export function mapAttendanceRow(
       : row.section_slug
       ? String(row.section_slug).toUpperCase()
       : null,
-    staffStatus: (row.staff_status as StaffStatus) || "active",
+    staffStatus: normalizeStaffStatus(row.staff_status),
     workDate,
     status: row.attendance_status
       ? (String(row.attendance_status) as AttendanceStatus)
@@ -163,10 +189,13 @@ export function mapTaskRow(row: Record<string, unknown>): TaskRecord {
     title: String(row.title),
     description: String(row.description ?? ""),
     priority: (row.priority as TaskPriority) || "normal",
-    status: (row.status as TaskStatus) || "pending",
+    status: normalizeTaskStatus(row.status),
     dueDate: row.due_date ? String(row.due_date) : null,
     referenceLink: String(row.reference_link ?? ""),
+    submissionLink: String(row.submission_link ?? ""),
     completionNote: String(row.completion_note ?? ""),
+    acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null,
+    submittedAt: row.submitted_at ? toIso(row.submitted_at) : null,
     assignedToId: String(row.assigned_to_id),
     assignedToName: String(row.assigned_to_name),
     assignedById: row.assigned_by_id ? String(row.assigned_by_id) : null,

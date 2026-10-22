@@ -29,11 +29,17 @@ const SCHEMA_STATEMENTS = [
     skills JSONB NOT NULL DEFAULT '[]'::jsonb,
     bio TEXT NOT NULL DEFAULT '',
     free_time TEXT NOT NULL DEFAULT '',
-    staff_status TEXT NOT NULL DEFAULT 'active' CHECK (staff_status IN ('active', 'free', 'busy', 'not_available')),
+    staff_status TEXT NOT NULL DEFAULT 'free' CHECK (staff_status IN ('working', 'free', 'offline', 'active')),
     token_version INTEGER NOT NULL DEFAULT 1,
     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  // Upgrade existing live Neon df_users constraints seamlessly
+  `ALTER TABLE df_users DROP CONSTRAINT IF EXISTS df_users_staff_status_check`,
+  `UPDATE df_users SET staff_status = 'working' WHERE staff_status = 'busy'`,
+  `UPDATE df_users SET staff_status = 'offline' WHERE staff_status = 'not_available'`,
+  `ALTER TABLE df_users ADD CONSTRAINT df_users_staff_status_check CHECK (staff_status IN ('working', 'free', 'offline', 'active'))`,
+
   `CREATE TABLE IF NOT EXISTS df_spending (
     id TEXT PRIMARY KEY,
     section_slug TEXT NOT NULL,
@@ -99,10 +105,13 @@ const SCHEMA_STATEMENTS = [
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'high', 'urgent')),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'working', 'submitted', 'completed')),
     due_date TEXT,
     reference_link TEXT NOT NULL DEFAULT '',
+    submission_link TEXT NOT NULL DEFAULT '',
     completion_note TEXT NOT NULL DEFAULT '',
+    accepted_at TIMESTAMPTZ,
+    submitted_at TIMESTAMPTZ,
     assigned_to_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
     assigned_to_name TEXT NOT NULL,
     assigned_by_id TEXT,
@@ -110,6 +119,14 @@ const SCHEMA_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  // Upgrade existing live Neon df_tasks table seamlessly
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS submission_link TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`,
+  `ALTER TABLE df_tasks DROP CONSTRAINT IF EXISTS df_tasks_status_check`,
+  `UPDATE df_tasks SET status = 'working' WHERE status = 'in_progress'`,
+  `ALTER TABLE df_tasks ADD CONSTRAINT df_tasks_status_check CHECK (status IN ('pending', 'working', 'submitted', 'completed'))`,
+
   `CREATE TABLE IF NOT EXISTS df_notifications (
     id TEXT PRIMARY KEY,
     recipient_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,

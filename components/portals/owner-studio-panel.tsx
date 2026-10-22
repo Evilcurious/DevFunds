@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Check, Crown, ImagePlus, Save, Type, Upload, X } from "lucide-react";
+import { Check, Crown, ImagePlus, RotateCcw, Save, Type, Upload, X } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { CURRENCIES } from "@/lib/constants";
 import {
@@ -18,12 +18,7 @@ import type {
 } from "@/lib/types";
 
 export function OwnerStudioPanel() {
-  const {
-    settings,
-    setSettings,
-    clearVisitorOverrides,
-    toast,
-  } = useApp();
+  const { settings, setSettings, toast } = useApp();
 
   const [companyName, setCompanyName] = useState(settings.companyName);
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl);
@@ -40,7 +35,6 @@ export function OwnerStudioPanel() {
   const [customFonts, setCustomFonts] = useState<UploadedFont[]>(
     settings.customFonts || []
   );
-  const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -55,7 +49,6 @@ export function OwnerStudioPanel() {
     setCustomFonts(settings.customFonts || []);
   }, [settings]);
 
-  // Resize logo image cleanly to crisp <=256px PNG data URL so Neon DB storage stays tiny & fast
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -65,7 +58,7 @@ export function OwnerStudioPanel() {
       reader.onload = () => {
         if (typeof reader.result === "string") {
           setLogoUrl(reader.result);
-          toast("SVG logo ready — click Save Changes to publish.");
+          toast("SVG logo ready — click Save Changes.");
         }
       };
       reader.readAsDataURL(file);
@@ -85,7 +78,7 @@ export function OwnerStudioPanel() {
         if (ctx) {
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           setLogoUrl(canvas.toDataURL("image/png", 0.92));
-          toast("Logo uploaded — click Save Changes to apply globally.");
+          toast("Logo uploaded — click Save Changes.");
         }
       };
       img.src = String(reader.result);
@@ -93,7 +86,6 @@ export function OwnerStudioPanel() {
     reader.readAsDataURL(file);
   };
 
-  // Upload custom TTF / OTF / WOFF / WOFF2 font file
   const handleFontFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -140,23 +132,10 @@ export function OwnerStudioPanel() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.settings) {
-        clearVisitorOverrides();
         setSettings(data.settings);
-        toast("Brand, font, theme & language published globally!");
+        toast("Brand, theme & typography saved globally!");
       } else {
         toast(data.error || "Failed to save studio settings", "error");
-      }
-
-      if (newPassword.trim()) {
-        const pwRes = await fetch("/api/auth/me", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newPassword: newPassword.trim() }),
-        });
-        if (pwRes.ok) {
-          setNewPassword("");
-          toast("Password updated!");
-        }
       }
     } finally {
       setSaving(false);
@@ -165,12 +144,14 @@ export function OwnerStudioPanel() {
 
   return (
     <form onSubmit={handleSaveStudio} className="space-y-6">
-      {/* 1. Brand Identity: Website Name + Logo URL or Upload + Language & Currency */}
+      {/* 1. Brand Identity: Website Name + Official DEVZARD Logo / URL / File Upload */}
       <div className="royal-card rounded-2xl p-6 space-y-5">
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
           <div className="flex items-center gap-2.5">
             <Crown className="h-5 w-5 gold-accent" />
-            <h3 className="text-base font-bold">Brand, Logo & Language</h3>
+            <h3 className="text-base font-bold">
+              Brand, Logo & Global Theme Control (ERP Owner Only)
+            </h3>
           </div>
           <button
             type="submit"
@@ -178,7 +159,7 @@ export function OwnerStudioPanel() {
             className="royal-btn inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
-            <span>{saving ? "Saving..." : "Save Changes"}</span>
+            <span>{saving ? "Saving..." : "Save Globally"}</span>
           </button>
         </div>
 
@@ -211,7 +192,7 @@ export function OwnerStudioPanel() {
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
-              Currency
+              Base Ledger Currency
             </label>
             <select
               value={currency}
@@ -227,52 +208,35 @@ export function OwnerStudioPanel() {
           </div>
         </div>
 
-        {/* Logo URL + File Upload */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center pt-2">
           <div className="md:col-span-2 flex justify-center">
-            {logoUrl ? (
-              <div className="relative">
-                <img
-                  src={logoUrl}
-                  alt="Logo preview"
-                  className="h-16 w-16 rounded-xl object-contain border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1.5"
-                />
-                <button
-                  type="button"
-                  onClick={() => setLogoUrl("")}
-                  title="Reset logo"
-                  className="absolute -top-2 -right-2 rounded-full bg-rose-600 p-1 text-white"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <div className="royal-elevated flex h-16 w-16 items-center justify-center rounded-xl">
-                <Crown className="h-7 w-7 gold-accent" />
-              </div>
-            )}
+            <img
+              src={logoUrl || "/devzard-logo.png"}
+              alt="Logo preview"
+              className="h-16 w-16 rounded-xl object-contain bg-white border border-[var(--border-subtle)] p-1.5"
+            />
           </div>
 
-          <div className="md:col-span-6">
+          <div className="md:col-span-5">
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
               Logo URL
             </label>
             <input
               type="text"
-              placeholder="https://example.com/logo.png"
+              placeholder="/devzard-logo.png or https://..."
               value={logoUrl.startsWith("data:") ? "" : logoUrl}
               onChange={(e) => setLogoUrl(e.target.value)}
               className="royal-input w-full"
             />
           </div>
 
-          <div className="md:col-span-4">
+          <div className="md:col-span-3">
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
-              Or Upload Logo File
+              Upload Logo
             </label>
-            <label className="royal-btn-outline flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm cursor-pointer">
+            <label className="royal-btn-outline flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs cursor-pointer">
               <ImagePlus className="h-4 w-4 gold-accent" />
-              <span>Upload Logo</span>
+              <span>Upload File</span>
               <input
                 type="file"
                 accept="image/*"
@@ -281,10 +245,24 @@ export function OwnerStudioPanel() {
               />
             </label>
           </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+              Default
+            </label>
+            <button
+              type="button"
+              onClick={() => setLogoUrl("/devzard-logo.png")}
+              className="royal-btn-outline w-full rounded-xl px-3 py-2.5 text-xs inline-flex items-center justify-center gap-1"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>DZ Logo</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 2. 7 Royal Preset Themes + Custom Theme + Text Color Selector */}
+      {/* 2. 7 Royal Preset Themes + Custom Theme Builder + Text Color Selector */}
       <div className="royal-card rounded-2xl p-6 space-y-5">
         <h3 className="text-base font-bold border-b border-[var(--border-subtle)] pb-3">
           7 Royal Themes, Custom Theme & Text Color
@@ -340,7 +318,6 @@ export function OwnerStudioPanel() {
           })}
         </div>
 
-        {/* Custom Theme Palette & Custom Text Color */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
           <label className="royal-elevated rounded-xl p-3 text-xs space-y-1.5">
             <span className="block font-semibold">Canvas Color</span>
@@ -521,29 +498,14 @@ export function OwnerStudioPanel() {
         </div>
       </div>
 
-      {/* 4. Owner Password Reset */}
-      <div className="royal-card rounded-2xl p-6 flex flex-wrap items-end justify-between gap-4">
-        <div className="w-full sm:w-80">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
-            Change My Password
-          </label>
-          <input
-            type="password"
-            minLength={6}
-            placeholder="New password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="royal-input w-full"
-          />
-        </div>
-
+      <div className="flex justify-end">
         <button
           type="submit"
           disabled={saving}
           className="royal-btn inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm"
         >
           <Save className="h-4 w-4" />
-          <span>{saving ? "Saving..." : "Save All Settings"}</span>
+          <span>{saving ? "Saving..." : "Save Globally"}</span>
         </button>
       </div>
     </form>

@@ -5,11 +5,10 @@ import { Plus, Search } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { EarningModal } from "@/components/modals/earning-modal";
 import { EarningTopUpCard } from "@/components/topup-cards";
-import { formatMoney } from "@/lib/format";
 import type { EarningRecord } from "@/lib/types";
 
 export default function EarningPage() {
-  const { user, settings, t, toast } = useApp();
+  const { user, settings, money, t, toast } = useApp();
   const [records, setRecords] = useState<EarningRecord[]>([]);
   const [totals, setTotals] = useState({
     totalCustomers: 0,
@@ -104,7 +103,7 @@ export default function EarningPage() {
             {t("totalEarning")}
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-bold tabular-nums text-emerald-400">
-            {formatMoney(totals.totalEarning, settings.currency)}
+            {money(totals.totalEarning)}
           </div>
         </div>
 
@@ -113,7 +112,7 @@ export default function EarningPage() {
             {t("netProfit")}
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-bold tabular-nums gold-accent">
-            {formatMoney(totals.netProfit, settings.currency)}
+            {money(totals.netProfit)}
           </div>
         </div>
       </div>
@@ -145,7 +144,6 @@ export default function EarningPage() {
             <EarningTopUpCard
               key={rec.id}
               record={rec}
-              currency={settings.currency}
               timezone={settings.timezone}
               canEdit={canManage}
               canDelete={canManage}

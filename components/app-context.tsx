@@ -8,15 +8,15 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { DEFAULT_SETTINGS } from "@/lib/constants";
+import { CURRENCIES, DEFAULT_SETTINGS } from "@/lib/constants";
+import { formatMoney } from "@/lib/format";
 import { tr, type TranslationKey } from "@/lib/i18n";
 import { BUILTIN_FONTS, resolveActivePalette } from "@/lib/themes";
 import type {
   AppSettings,
-  CustomThemePalette,
+  CurrencyCode,
   LanguageCode,
   NotificationRecord,
-  ThemePresetId,
   UserRecord,
 } from "@/lib/types";
 
@@ -26,26 +26,15 @@ interface ToastItem {
   tone: "success" | "error" | "info";
 }
 
-interface VisitorAppearanceOverride {
-  themeId?: ThemePresetId;
-  customTheme?: CustomThemePalette;
-  textColorOverride?: string;
-  language?: LanguageCode;
-  fontId?: string;
-}
-
 interface AppContextValue {
   user: UserRecord | null;
   settings: AppSettings;
   lang: LanguageCode;
   t: (key: TranslationKey) => string;
   setVisitorLanguage: (lang: LanguageCode) => void;
-  activeThemeId: ThemePresetId;
-  activePalette: CustomThemePalette;
-  activeTextColor: string;
-  activeFontId: string;
-  setVisitorAppearance: (patch: VisitorAppearanceOverride) => void;
-  clearVisitorOverrides: () => void;
+  displayCurrency: CurrencyCode;
+  setDisplayCurrency: (code: CurrencyCode) => void;
+  money: (amount: number) => string;
   loadingAuth: boolean;
   refreshSession: () => Promise<void>;
   setUser: React.Dispatch<React.SetStateAction<UserRecord | null>>;
@@ -62,7 +51,8 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const VISITOR_PREF_KEY = "devfunds_visitor_appearance_v2";
+const LANG_KEY = "devzard_lang_v3";
+const CURRENCY_KEY = "devzard_currency_v3";
 
 function playSubtleChime() {
   try {
@@ -91,8 +81,9 @@ function playSubtleChime() {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserRecord | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [visitorOverride, setVisitorOverride] =
-    useState<VisitorAppearanceOverride>({});
+  const [langOverride, setLangOverride] = useState<LanguageCode | null>(null);
+  const [currencyOverride, setCurrencyOverride] =
+    useState<CurrencyCode | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
@@ -114,15 +105,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  // Load saved visitor overrides on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(VISITOR_PREF_KEY);
-      if (raw) {
-        setVisitorOverride(JSON.parse(raw));
+      // Remove any legacy public theme override key so ONLY ERP Owner controls theme
+      localStorage.removeItem("devfunds_visitor_appearance_v2");
+      const savedLang = localStorage.getItem(LANG_KEY);
+      if (savedLang === "en" || savedLang === "ur") {
+        setLangOverride(savedLang);
+      }
+      const savedCurr = localStorage.getItem(CURRENCY_KEY) as CurrencyCode;
+      if (savedCurr && CURRENCIES[savedCurr]) {
+        setCurrencyOverride(savedCurr);
       }
     } catch {
-      // ignore
+      // ignore storage restrictions
     }
     if (typeof window !== "undefined" && "Notification" in window) {
       setBrowserNotifPermission(Notification.permission);
@@ -131,49 +127,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setVisitorAppearance = useCallback(
-    (patch: VisitorAppearanceOverride) => {
-      setVisitorOverride((prev) => {
-        const next = { ...prev, ...patch };
-        try {
-          localStorage.setItem(VISITOR_PREF_KEY, JSON.stringify(next));
-        } catch {
-          // ignore
-        }
-        return next;
-      });
-    },
-    []
-  );
-
-  const clearVisitorOverrides = useCallback(() => {
-    setVisitorOverride({});
+  const setVisitorLanguage = useCallback((nextLang: LanguageCode) => {
+    setLangOverride(nextLang);
     try {
-      localStorage.removeItem(VISITOR_PREF_KEY);
+      localStorage.setItem(LANG_KEY, nextLang);
     } catch {
       // ignore
     }
   }, []);
 
-  const setVisitorLanguage = useCallback(
-    (lang: LanguageCode) => {
-      setVisitorAppearance({ language: lang });
-    },
-    [setVisitorAppearance]
+  const setDisplayCurrency = useCallback((code: CurrencyCode) => {
+    setCurrencyOverride(code);
+    try {
+      localStorage.setItem(CURRENCY_KEY, code);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const lang: LanguageCode = langOverride ?? settings.language;
+  const displayCurrency: CurrencyCode = currencyOverride ?? settings.currency;
+
+  const money = useCallback(
+    (amount: number) =>
+      formatMoney(amount, displayCurrency, settings.currency),
+    [displayCurrency, settings.currency]
   );
 
-  const lang: LanguageCode = visitorOverride.language ?? settings.language;
-  const activeThemeId: ThemePresetId =
-    visitorOverride.themeId ?? settings.themeId;
-  const customPalette = visitorOverride.customTheme ?? settings.customTheme;
-  const activePalette = resolveActivePalette(activeThemeId, customPalette);
-  const activeTextColor =
-    visitorOverride.textColorOverride !== undefined
-      ? visitorOverride.textColorOverride
-      : settings.textColorOverride;
-  const activeFontId = visitorOverride.fontId ?? settings.fontId;
+  // Theme, colors & font come strictly from ERP Owner's global settings!
+  const activePalette = resolveActivePalette(
+    settings.themeId,
+    settings.customTheme
+  );
 
-  // Inject uploaded custom @font-face definitions dynamically
   useEffect(() => {
     if (typeof document === "undefined") return;
     for (const font of settings.customFonts || []) {
@@ -192,7 +178,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings.customFonts]);
 
-  // Apply CSS custom properties, font family, title, and RTL/LTR direction live!
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -204,15 +189,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty("--accent-secondary", activePalette.accentSecondary);
     root.style.setProperty(
       "--text-primary",
-      activeTextColor || activePalette.textPrimary
+      settings.textColorOverride || activePalette.textPrimary
     );
     root.style.setProperty("--text-muted", activePalette.textMuted);
 
-    // Resolve font family
     const uploadedMatch = settings.customFonts?.find(
-      (f) => f.id === activeFontId
+      (f) => f.id === settings.fontId
     );
-    const builtinMatch = BUILTIN_FONTS.find((f) => f.id === activeFontId);
+    const builtinMatch = BUILTIN_FONTS.find((f) => f.id === settings.fontId);
     const baseFamily = uploadedMatch
       ? `'CustomFont_${uploadedMatch.id}', 'Plus Jakarta Sans', sans-serif`
       : builtinMatch
@@ -228,15 +212,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     root.dir = lang === "ur" ? "rtl" : "ltr";
     root.lang = lang;
-    document.title = settings.companyName || "DevFunds";
-  }, [
-    activePalette,
-    activeTextColor,
-    activeFontId,
-    settings.customFonts,
-    settings.companyName,
-    lang,
-  ]);
+    document.title = settings.companyName || "DEVZARD";
+  }, [activePalette, settings, lang]);
 
   const refreshSession = useCallback(async () => {
     try {
@@ -288,7 +265,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setNotifications(list);
       setUnreadCount(data.unreadCount ?? 0);
 
-      // Fire web notification & chime for any unread notification not yet announced in this session!
       for (const item of list) {
         if (!item.isRead && !announcedIdsRef.current.has(item.id)) {
           announcedIdsRef.current.add(item.id);
@@ -302,10 +278,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             try {
               new Notification(item.title, {
                 body: item.body,
-                icon: "/icon.svg",
+                icon: "/devzard-logo.png",
               });
             } catch {
-              // ignore mobile SW requirement fallback
+              // ignore fallback
             }
           }
         }
@@ -315,7 +291,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, toast]);
 
-  // Poll notifications every 8s while signed into any portal
   useEffect(() => {
     if (!user) {
       announcedIdsRef.current.clear();
@@ -355,12 +330,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         lang,
         t,
         setVisitorLanguage,
-        activeThemeId,
-        activePalette,
-        activeTextColor,
-        activeFontId,
-        setVisitorAppearance,
-        clearVisitorOverrides,
+        displayCurrency,
+        setDisplayCurrency,
+        money,
         loadingAuth,
         refreshSession,
         setUser,

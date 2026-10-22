@@ -9,16 +9,12 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { formatDateTime, formatMoney } from "@/lib/format";
-import type {
-  CurrencyCode,
-  EarningRecord,
-  SpendingRecord,
-} from "@/lib/types";
+import { useApp } from "./app-context";
+import { formatDateTime } from "@/lib/format";
+import type { EarningRecord, SpendingRecord } from "@/lib/types";
 
 export function SpendingTopUpCard({
   record,
-  currency,
   timezone,
   canEdit,
   canDelete,
@@ -26,13 +22,15 @@ export function SpendingTopUpCard({
   onDelete,
 }: {
   record: SpendingRecord;
-  currency: CurrencyCode;
+  currency?: string;
   timezone?: string;
   canEdit?: boolean;
   canDelete?: boolean;
   onEdit?: (rec: SpendingRecord) => void;
   onDelete?: (rec: SpendingRecord) => void;
 }) {
+  const { money } = useApp();
+
   return (
     <div className="royal-card royal-card-hover rounded-2xl p-5 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -53,7 +51,7 @@ export function SpendingTopUpCard({
         </div>
 
         <div className="text-lg font-bold tabular-nums text-rose-400">
-          − {formatMoney(record.amount, currency)}
+          − {money(record.amount)}
         </div>
       </div>
 
@@ -106,7 +104,6 @@ export function SpendingTopUpCard({
 
 export function EarningTopUpCard({
   record,
-  currency,
   timezone,
   canEdit,
   canDelete,
@@ -114,13 +111,14 @@ export function EarningTopUpCard({
   onDelete,
 }: {
   record: EarningRecord;
-  currency: CurrencyCode;
+  currency?: string;
   timezone?: string;
   canEdit?: boolean;
   canDelete?: boolean;
   onEdit?: (rec: EarningRecord) => void;
   onDelete?: (rec: EarningRecord) => void;
 }) {
+  const { money } = useApp();
   const [copied, setCopied] = useState(false);
 
   const copyWorkLink = () => {
@@ -149,7 +147,7 @@ export function EarningTopUpCard({
         </div>
 
         <div className="text-lg font-bold tabular-nums text-emerald-400">
-          + {formatMoney(record.amountPaid, currency)}
+          + {money(record.amountPaid)}
         </div>
       </div>
 
@@ -175,7 +173,6 @@ export function EarningTopUpCard({
         </div>
       </div>
 
-      {/* Delivered IT Work Link */}
       <div className="royal-elevated rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <Link2 className="h-4 w-4 shrink-0 gold-accent" />

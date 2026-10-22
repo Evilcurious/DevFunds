@@ -16,11 +16,10 @@ import {
   EarningTopUpCard,
   SpendingTopUpCard,
 } from "@/components/topup-cards";
-import { formatMoney } from "@/lib/format";
 import type { OverviewResponse } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { settings, setSettings, t } = useApp();
+  const { settings, setSettings, money, t } = useApp();
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,7 +47,6 @@ export default function DashboardPage() {
     loadOverview(false);
   }, [loadOverview]);
 
-  const currency = data?.settings?.currency ?? settings.currency;
   const m = data?.metrics ?? {
     totalCustomers: 0,
     totalEarning: 0,
@@ -61,8 +59,8 @@ export default function DashboardPage() {
     totalStaff: 0,
     activeStaff: 0,
     freeStaff: 0,
-    busyStaff: 0,
-    unavailableStaff: 0,
+    workingStaff: 0,
+    offlineStaff: 0,
     todayDate: new Date().toISOString().slice(0, 10),
     presentToday: 0,
     lateToday: 0,
@@ -120,7 +118,7 @@ export default function DashboardPage() {
               {t("totalEarning")}
             </p>
             <div className="mt-3 text-2xl sm:text-3xl font-bold tabular-nums text-emerald-400">
-              {loading ? "—" : formatMoney(m.totalEarning, currency)}
+              {loading ? "—" : money(m.totalEarning)}
             </div>
           </div>
           <ArrowUpRight className="h-5 w-5 text-emerald-400 shrink-0" />
@@ -135,7 +133,7 @@ export default function DashboardPage() {
               {t("totalSpending")}
             </p>
             <div className="mt-3 text-2xl sm:text-3xl font-bold tabular-nums text-rose-400">
-              {loading ? "—" : formatMoney(m.totalSpending, currency)}
+              {loading ? "—" : money(m.totalSpending)}
             </div>
           </div>
           <ArrowDownRight className="h-5 w-5 text-rose-400 shrink-0" />
@@ -157,7 +155,7 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Executive Summary Bar: Net Profit + Department Spend + Today's Attendance */}
+      {/* Executive Summary Bar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-7 royal-card rounded-2xl p-6 flex flex-col justify-between gap-5">
           <div className="flex items-center justify-between">
@@ -168,7 +166,7 @@ export default function DashboardPage() {
               </span>
             </div>
             <div className="text-2xl font-bold tabular-nums gold-accent">
-              {formatMoney(m.netProfit, currency)}
+              {money(m.netProfit)}
             </div>
           </div>
 
@@ -181,7 +179,7 @@ export default function DashboardPage() {
                 {t("bdSpending")}
               </div>
               <div className="mt-1.5 text-lg font-bold tabular-nums">
-                {formatMoney(m.bdSpending, currency)}
+                {money(m.bdSpending)}
               </div>
             </Link>
 
@@ -193,7 +191,7 @@ export default function DashboardPage() {
                 {t("itSpending")}
               </div>
               <div className="mt-1.5 text-lg font-bold tabular-nums">
-                {formatMoney(m.itSpending, currency)}
+                {money(m.itSpending)}
               </div>
             </Link>
           </div>
@@ -263,7 +261,6 @@ export default function DashboardPage() {
                 <EarningTopUpCard
                   key={rec.id}
                   record={rec}
-                  currency={currency}
                   timezone={settings.timezone}
                 />
               ))}
@@ -292,7 +289,6 @@ export default function DashboardPage() {
                 <SpendingTopUpCard
                   key={rec.id}
                   record={rec}
-                  currency={currency}
                   timezone={settings.timezone}
                 />
               ))}

@@ -41,8 +41,8 @@ export async function GET() {
         `SELECT COUNT(*)::int AS total_staff,
                 COUNT(*) FILTER (WHERE staff_status = 'active')::int AS active_staff,
                 COUNT(*) FILTER (WHERE staff_status = 'free')::int AS free_staff,
-                COUNT(*) FILTER (WHERE staff_status = 'busy')::int AS busy_staff,
-                COUNT(*) FILTER (WHERE staff_status = 'not_available')::int AS unavailable_staff
+                COUNT(*) FILTER (WHERE staff_status = 'working')::int AS working_staff,
+                COUNT(*) FILTER (WHERE staff_status = 'offline')::int AS offline_staff
          FROM df_users
          WHERE portal_role = 'staff'`
       ),
@@ -111,8 +111,8 @@ export async function GET() {
         totalStaff,
         activeStaff: toNum(staffAgg?.active_staff, 0),
         freeStaff: toNum(staffAgg?.free_staff, 0),
-        busyStaff: toNum(staffAgg?.busy_staff, 0),
-        unavailableStaff: toNum(staffAgg?.unavailable_staff, 0),
+        workingStaff: toNum(staffAgg?.working_staff, 0),
+        offlineStaff: toNum(staffAgg?.offline_staff, 0),
         todayDate: today,
         presentToday,
         lateToday,

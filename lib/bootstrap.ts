@@ -81,7 +81,10 @@ export function normalizeSettings(raw: unknown): AppSettings {
       typeof obj.companyName === "string" && obj.companyName.trim()
         ? obj.companyName.trim().slice(0, 60)
         : DEFAULT_SETTINGS.companyName,
-    logoUrl: typeof obj.logoUrl === "string" ? obj.logoUrl.trim() : "",
+    logoUrl:
+      typeof obj.logoUrl === "string" && obj.logoUrl.trim()
+        ? obj.logoUrl.trim()
+        : DEFAULT_SETTINGS.logoUrl,
     currency,
     timezone:
       typeof obj.timezone === "string" && obj.timezone.trim()
@@ -110,6 +113,37 @@ async function seedCoreStructure(): Promise<void> {
      ON CONFLICT (key) DO NOTHING`,
     [JSON.stringify(DEFAULT_SETTINGS)]
   );
+
+  // One-time upgrade: apply uploaded DEVZARD official logo on existing DB if still empty/default
+  const brandFlag = await one<{ key: string }>(
+    `SELECT key FROM df_settings WHERE key = 'brand_devzard_v3' LIMIT 1`
+  );
+  if (!brandFlag) {
+    const appRow = await one<{ value: unknown }>(
+      `SELECT value FROM df_settings WHERE key = 'app' LIMIT 1`
+    );
+    const current = normalizeSettings(appRow?.value);
+    const rawObj = asJson<Record<string, unknown>>(appRow?.value, {});
+    const updated: AppSettings = {
+      ...current,
+      logoUrl:
+        typeof rawObj.logoUrl === "string" && rawObj.logoUrl.trim()
+          ? rawObj.logoUrl.trim()
+          : "/devzard-logo.png",
+      companyName:
+        !rawObj.companyName || rawObj.companyName === "DevFunds"
+          ? "DEVZARD"
+          : String(rawObj.companyName),
+    };
+    await rawQuery(
+      `UPDATE df_settings SET value = $1::jsonb, updated_at = NOW() WHERE key = 'app'`,
+      [JSON.stringify(updated)]
+    );
+    await rawQuery(
+      `INSERT INTO df_settings (key, value) VALUES ('brand_devzard_v3', $1::jsonb) ON CONFLICT (key) DO NOTHING`,
+      [JSON.stringify({ upgradedAt: new Date().toISOString() })]
+    );
+  }
 
   const initFlag = await one<{ key: string }>(
     `SELECT key FROM df_settings WHERE key = 'initialized_v1' LIMIT 1`

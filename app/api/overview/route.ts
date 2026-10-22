@@ -48,7 +48,7 @@ export async function GET() {
                 COUNT(*) FILTER (WHERE staff_status = 'working')::int AS working_staff,
                 COUNT(*) FILTER (WHERE staff_status = 'offline')::int AS offline_staff
          FROM df_users
-         WHERE portal_role = 'staff'`
+         WHERE portal_role IN ('it_ceo', 'bd_ceo', 'staff')`
       ),
       one<Record<string, unknown>>(
         `SELECT COUNT(*) FILTER (WHERE a.status = 'present')::int AS present_today,
@@ -58,7 +58,7 @@ export async function GET() {
          FROM df_users u
          LEFT JOIN df_attendance a
            ON a.user_id = u.id AND a.work_date = $1
-         WHERE u.portal_role = 'staff'`,
+         WHERE u.portal_role IN ('it_ceo', 'bd_ceo', 'staff')`,
         [today]
       ),
       rawQuery<Record<string, unknown>>(

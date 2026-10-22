@@ -1,15 +1,33 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Check, CheckCircle2, Send, X } from "lucide-react";
+import Link from "next/link";
+import {
+  Check,
+  CheckCircle2,
+  Crown,
+  History,
+  Send,
+  X,
+} from "lucide-react";
 import { useApp } from "@/components/app-context";
+import { UserAvatar } from "@/components/user-avatar";
 import { ATTENDANCE_STATUS_META, LEAVE_TYPES } from "@/lib/constants";
 import { formatTimeShort, todayInTimezone } from "@/lib/format";
 import type {
   AttendanceRecord,
+  AttendanceStatus,
   LeaveRequestRecord,
-  SectionRecord,
+  UserRecord,
 } from "@/lib/types";
+
+interface MemberHistoryEntry {
+  workDate: string;
+  status: AttendanceStatus;
+  checkIn: string | null;
+  checkOut: string | null;
+  markedByName?: string | null;
+}
 
 export default function AttendancePage() {
   const { user, settings, lang, t, toast } = useApp();
@@ -17,11 +35,18 @@ export default function AttendancePage() {
   const [date, setDate] = useState<string>(() =>
     todayInTimezone(settings.timezone)
   );
-  const [section, setSection] = useState<string>("all");
-  const [sections, setSections] = useState<SectionRecord[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [markingUserId, setMarkingUserId] = useState<string | null>(null);
+
+  // History modal state when clicking a member's attendance
+  const [historyProfile, setHistoryProfile] = useState<UserRecord | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<MemberHistoryEntry[]>(
+    []
+  );
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Leave request form state
   const [leaveUserId, setLeaveUserId] = useState("");
@@ -39,16 +64,15 @@ export default function AttendancePage() {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/attendance?date=${encodeURIComponent(date)}&section=${encodeURIComponent(section)}`,
+        `/api/attendance?date=${encodeURIComponent(date)}`,
         { cache: "no-store" }
       );
       if (res.ok) {
         const json = await res.json();
-        setSections(json.sections ?? []);
         const list: AttendanceRecord[] = json.records ?? [];
         setRecords(list);
         setLeaves(json.leaves ?? []);
-        if (user?.portalRole === "staff") {
+        if (user && list.some((r) => r.userId === user.id)) {
           setLeaveUserId(user.id);
         } else if (!leaveUserId && list[0]) {
           setLeaveUserId(list[0].userId);
@@ -57,29 +81,75 @@ export default function AttendancePage() {
     } finally {
       setLoading(false);
     }
-  }, [date, section, user, leaveUserId]);
+  }, [date, user, leaveUserId]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // One-click "Present" handler!
-  const handleClickPresent = async (row: AttendanceRecord) => {
-    const res = await fetch("/api/attendance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "present",
-        userId: row.userId,
-        workDate: date,
-      }),
-    });
-    if (res.ok) {
-      toast(`${row.userName} — ${t("present")}`);
-      loadData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error || "Failed", "error");
+  // Automatic 4:00 AM daily rollover watcher while page stays open
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const liveWorkDate = todayInTimezone(settings.timezone);
+      setDate((prev) => (prev !== liveWorkDate ? liveWorkDate : prev));
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [settings.timezone]);
+
+  // One-click "Present" handler — instant optimistic glow + permanent DB save!
+  const handleMarkPresent = async (row: AttendanceRecord) => {
+    setMarkingUserId(row.userId);
+    // Instant optimistic UI glow update
+    setRecords((prev) =>
+      prev.map((item) =>
+        item.userId === row.userId
+          ? {
+              ...item,
+              status: "present",
+              checkIn: item.checkIn || new Date().toISOString(),
+            }
+          : item
+      )
+    );
+
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "present",
+          userId: row.userId,
+          workDate: date,
+        }),
+      });
+      if (res.ok) {
+        toast(`${row.userName} — ${t("present")}!`);
+        loadData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast(err.error || "Unable to mark attendance", "error");
+        loadData();
+      }
+    } finally {
+      setMarkingUserId(null);
+    }
+  };
+
+  // Open Member's Full Attendance Stats & History Modal
+  const openAttendanceHistory = async (row: AttendanceRecord) => {
+    setHistoryModalOpen(true);
+    setLoadingHistory(true);
+    try {
+      const res = await fetch(`/api/staff/${row.userId}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setHistoryProfile(json.profile ?? null);
+        setHistoryEntries(json.attendanceHistory ?? []);
+      }
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -91,7 +161,7 @@ export default function AttendancePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: user?.portalRole === "staff" ? user.id : leaveUserId,
+          userId: leaveUserId || user?.id,
           leaveType,
           startDate,
           endDate,
@@ -129,30 +199,137 @@ export default function AttendancePage() {
       body: JSON.stringify({ status: decision }),
     });
     if (res.ok) {
-      toast(
-        decision === "approved"
-          ? `${lv.userName} leave approved`
-          : `${lv.userName} leave rejected`
-      );
+      toast(decision === "approved" ? t("approved") : t("rejected"));
       loadData();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error || "Action failed", "error");
     }
+  };
+
+  // Split cleanly into the 2 sections: IT Team (IT CEO + IT staff) & BD Team (BD CEO + BD staff)
+  const itTeam = records.filter((r) => r.sectionSlug === "it");
+  const bdTeam = records.filter((r) => r.sectionSlug === "bd");
+  const otherTeam = records.filter(
+    (r) => r.sectionSlug !== "it" && r.sectionSlug !== "bd"
+  );
+
+  const renderMemberRow = (row: AttendanceRecord) => {
+    const isMarked = row.status === "present" || row.status === "late";
+    const isCeo = row.portalRole === "it_ceo" || row.portalRole === "bd_ceo";
+
+    return (
+      <div
+        key={row.userId}
+        style={
+          isMarked
+            ? {
+                borderColor: "rgba(52, 211, 153, 0.45)",
+              }
+            : undefined
+        }
+        className="royal-elevated rounded-2xl p-4 flex items-center justify-between gap-3 transition-all"
+      >
+        {/* Clickable Profile Logo + Name -> Opens Full Profile Page (/staff/[id]) */}
+        <Link
+          href={`/staff/${row.userId}`}
+          className="flex items-center gap-3.5 min-w-0 group"
+        >
+          <UserAvatar
+            name={row.userName}
+            avatarUrl={row.avatarUrl}
+            size="md"
+            glowing={isMarked}
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-sm sm:text-base font-extrabold truncate group-hover:underline ${
+                  isMarked ? "attendance-glow-name" : ""
+                }`}
+              >
+                {row.userName}
+              </span>
+              {isCeo && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-[var(--accent-secondary)] px-2 py-0.5 text-[10px] font-extrabold uppercase gold-accent">
+                  <Crown className="h-2.5 w-2.5" />
+                  {row.portalRole === "it_ceo" ? "IT CEO" : "BD CEO"}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-muted-royal flex items-center gap-2">
+              <span className="truncate">{row.jobTitle}</span>
+              <span>·</span>
+              <span className="tabular-nums text-emerald-400 font-semibold">
+                {row.attendanceRate ?? 0}%
+              </span>
+            </div>
+          </div>
+        </Link>
+
+        {/* Right Controls: Mark Present OR Click Marked Badge to Inspect Full History */}
+        <div className="flex items-center gap-2 shrink-0">
+          {isMarked ? (
+            <button
+              type="button"
+              onClick={() => openAttendanceHistory(row)}
+              title="Click to view attendance stats & history"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/50 bg-emerald-500/15 px-3.5 py-2 text-xs font-extrabold text-emerald-300 shadow-xs hover:bg-emerald-500/25 transition-all"
+            >
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              <span>
+                {t("present")}
+                {row.checkIn
+                  ? ` · ${formatTimeShort(row.checkIn, settings.timezone)}`
+                  : ""}
+              </span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={markingUserId === row.userId}
+                onClick={() => handleMarkPresent(row)}
+                className="royal-btn rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-60"
+              >
+                {markingUserId === row.userId ? "..." : t("present")}
+              </button>
+              <button
+                type="button"
+                onClick={() => openAttendanceHistory(row)}
+                title="Attendance History"
+                className="royal-btn-outline rounded-xl p-2"
+              >
+                <History className="h-4 w-4 text-muted-royal" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="space-y-7">
-      {/* Header + 2-Section Switcher: Mark Present vs Leave Requests */}
+      {/* Header + 4:00 AM Cycle Info + View Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            {t("attendance")}
-          </h1>
-          <div className="gold-line w-24" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              {t("attendance")}
+            </h1>
+            <span className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-xs font-semibold gold-accent tabular-nums">
+              New Day Starts Daily at 4:00 AM · {date}
+            </span>
+          </div>
+          <div className="gold-line w-28" />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="royal-input py-1.5 text-xs"
+          />
+
           <button
             type="button"
             onClick={() => setView("present")}
@@ -176,106 +353,91 @@ export default function AttendancePage() {
       </div>
 
       {view === "present" ? (
-        <div className="space-y-5">
-          {/* Date & Section Filter */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setSection("all")}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold uppercase ${
-                  section === "all" ? "royal-btn" : "royal-btn-outline"
-                }`}
-              >
-                {t("allSections")}
-              </button>
-              {sections.map((sec) => (
-                <button
-                  key={sec.id}
-                  type="button"
-                  onClick={() => setSection(sec.slug)}
-                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold uppercase ${
-                    section === sec.slug ? "royal-btn" : "royal-btn-outline"
-                  }`}
-                >
-                  {sec.name}
-                </button>
-              ))}
-            </div>
-
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="royal-input py-1.5 text-xs"
-            />
+        loading ? (
+          <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
+            ...
           </div>
-
-          {/* One-Click "Present" Attendance Board */}
-          {loading ? (
-            <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
-              ...
-            </div>
-          ) : records.length === 0 ? (
-            <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
-              {t("noRecords")}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {records.map((row) => {
-                const isPresent = row.status === "present";
-                const attMeta = ATTENDANCE_STATUS_META[row.status];
-
-                return (
-                  <div
-                    key={row.userId}
-                    className="royal-card rounded-2xl p-5 flex items-center justify-between gap-4"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-bold truncate">
-                          {row.userName}
-                        </span>
-                        {row.sectionSlug && (
-                          <span className="rounded border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase gold-accent">
-                            {row.sectionName || row.sectionSlug}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-royal truncate">
-                        {row.jobTitle}
-                      </div>
-                      <div className="text-[11px] text-muted-royal tabular-nums">
-                        <span style={{ color: attMeta.color }}>
-                          {lang === "ur" ? attMeta.urduLabel : attMeta.label}
-                        </span>
-                        {row.checkIn &&
-                          ` · ${formatTimeShort(row.checkIn, settings.timezone)}`}
-                      </div>
-                    </div>
-
-                    {isPresent ? (
-                      <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3.5 py-2 text-xs font-bold text-emerald-400">
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span>{t("present")}</span>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleClickPresent(row)}
-                        className="royal-btn shrink-0 rounded-xl px-4 py-2.5 text-xs font-bold"
-                      >
-                        {t("present")}
-                      </button>
-                    )}
+        ) : (
+          <div className="space-y-6">
+            {/* THE 2 TEAM SECTIONS: IT TEAM & BD TEAM */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              {/* Section 1: IT Team */}
+              <section className="royal-card rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="rounded-lg border border-[var(--accent-secondary)] px-3 py-1 text-xs font-extrabold uppercase tracking-widest gold-accent">
+                      IT Team
+                    </span>
+                    <span className="text-xs text-muted-royal">
+                      (
+                      {
+                        itTeam.filter(
+                          (m) => m.status === "present" || m.status === "late"
+                        ).length
+                      }
+                      /{itTeam.length} {t("present")})
+                    </span>
                   </div>
-                );
-              })}
+                </div>
+
+                <div className="space-y-3">
+                  {itTeam.length === 0 ? (
+                    <p className="py-6 text-center text-xs text-muted-royal">
+                      {t("noRecords")}
+                    </p>
+                  ) : (
+                    itTeam.map(renderMemberRow)
+                  )}
+                </div>
+              </section>
+
+              {/* Section 2: BD Team */}
+              <section className="royal-card rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="rounded-lg border border-[var(--accent-secondary)] px-3 py-1 text-xs font-extrabold uppercase tracking-widest gold-accent">
+                      BD Team
+                    </span>
+                    <span className="text-xs text-muted-royal">
+                      (
+                      {
+                        bdTeam.filter(
+                          (m) => m.status === "present" || m.status === "late"
+                        ).length
+                      }
+                      /{bdTeam.length} {t("present")})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {bdTeam.length === 0 ? (
+                    <p className="py-6 text-center text-xs text-muted-royal">
+                      {t("noRecords")}
+                    </p>
+                  ) : (
+                    bdTeam.map(renderMemberRow)
+                  )}
+                </div>
+              </section>
             </div>
-          )}
-        </div>
+
+            {otherTeam.length > 0 && (
+              <section className="royal-card rounded-3xl p-6 space-y-4">
+                <div className="border-b border-[var(--border-subtle)] pb-3">
+                  <span className="text-xs font-extrabold uppercase tracking-widest gold-accent">
+                    Additional Sections
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {otherTeam.map(renderMemberRow)}
+                </div>
+              </section>
+            )}
+          </div>
+        )
       ) : (
-        /* Leave Submission + CEO / ERP Owner Approval Queue */
+        /* Leave Submission + Approval Queue */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <form
             onSubmit={handleSubmitLeave}
@@ -288,7 +450,7 @@ export default function AttendancePage() {
             {user?.portalRole !== "staff" && (
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
-                  {t("staff")} *
+                  Member *
                 </label>
                 <select
                   required
@@ -296,15 +458,11 @@ export default function AttendancePage() {
                   onChange={(e) => setLeaveUserId(e.target.value)}
                   className="royal-input w-full"
                 >
-                  {records.length === 0 ? (
-                    <option value="">{t("noRecords")}</option>
-                  ) : (
-                    records.map((r) => (
-                      <option key={r.userId} value={r.userId}>
-                        {r.userName} ({(r.sectionSlug || "").toUpperCase()})
-                      </option>
-                    ))
-                  )}
+                  {records.map((r) => (
+                    <option key={r.userId} value={r.userId}>
+                      {r.userName} ({(r.sectionSlug || "").toUpperCase()})
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
@@ -378,7 +536,6 @@ export default function AttendancePage() {
             </button>
           </form>
 
-          {/* Leave Requests List & Approval Controls */}
           <div className="lg:col-span-7 space-y-3">
             {leaves.length === 0 ? (
               <div className="royal-card rounded-2xl p-10 text-center text-xs text-muted-royal">
@@ -392,7 +549,12 @@ export default function AttendancePage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <span className="font-bold text-base">{lv.userName}</span>
+                      <Link
+                        href={`/staff/${lv.userId}`}
+                        className="font-bold text-base hover:underline"
+                      >
+                        {lv.userName}
+                      </Link>
                       {lv.sectionSlug && (
                         <span className="rounded border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase gold-accent">
                           {lv.sectionSlug}
@@ -412,11 +574,7 @@ export default function AttendancePage() {
                           : "bg-amber-500/15 text-amber-300"
                       }`}
                     >
-                      {lv.status === "approved"
-                        ? t("approved")
-                        : lv.status === "rejected"
-                        ? t("rejected")
-                        : t("pending")}
+                      {lv.status}
                     </span>
                   </div>
 
@@ -452,6 +610,117 @@ export default function AttendancePage() {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Attendance Stats & Full History Modal */}
+      {historyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-xs">
+          <div className="royal-card w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
+              <div className="flex items-center gap-3">
+                {historyProfile && (
+                  <UserAvatar
+                    name={historyProfile.name}
+                    avatarUrl={historyProfile.avatarUrl}
+                    size="md"
+                  />
+                )}
+                <div>
+                  <h3 className="text-base font-bold">
+                    {historyProfile?.name || "Attendance History"}
+                  </h3>
+                  {historyProfile && (
+                    <Link
+                      href={`/staff/${historyProfile.id}`}
+                      className="text-xs gold-accent hover:underline"
+                    >
+                      Open Full Profile →
+                    </Link>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                className="rounded-lg p-1.5 hover:opacity-80"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {loadingHistory ? (
+                <div className="py-10 text-center text-xs text-muted-royal">
+                  ...
+                </div>
+              ) : (
+                <>
+                  {historyProfile && (
+                    <div className="grid grid-cols-2 gap-3 text-center">
+                      <div className="royal-elevated rounded-2xl p-4">
+                        <div className="text-2xl font-extrabold tabular-nums text-emerald-400">
+                          {historyProfile.attendanceRate ?? 0}%
+                        </div>
+                        <div className="text-xs text-muted-royal mt-0.5">
+                          {t("attendanceRate")}
+                        </div>
+                      </div>
+                      <div className="royal-elevated rounded-2xl p-4">
+                        <div className="text-2xl font-extrabold tabular-nums gold-accent">
+                          {historyProfile.presentDaysCount ?? 0}
+                        </div>
+                        <div className="text-xs text-muted-royal mt-0.5">
+                          Days Marked {t("present")}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {historyEntries.length === 0 ? (
+                      <p className="py-6 text-center text-xs text-muted-royal">
+                        {t("noRecords")}
+                      </p>
+                    ) : (
+                      historyEntries.map((item) => {
+                        const meta =
+                          ATTENDANCE_STATUS_META[item.status] ??
+                          ATTENDANCE_STATUS_META.present;
+                        return (
+                          <div
+                            key={item.workDate}
+                            className="royal-elevated rounded-xl px-4 py-3 flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <span className="font-bold tabular-nums">
+                                {item.workDate}
+                              </span>
+                              {item.checkIn && (
+                                <span className="ms-2 text-muted-royal tabular-nums">
+                                  ·{" "}
+                                  {formatTimeShort(
+                                    item.checkIn,
+                                    settings.timezone
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                            <span
+                              style={{ color: meta.color }}
+                              className="font-extrabold uppercase"
+                            >
+                              {lang === "ur" ? meta.urduLabel : meta.label}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

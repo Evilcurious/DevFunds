@@ -34,7 +34,8 @@ const SCHEMA_STATEMENTS = [
     joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
-  // Upgrade existing live Neon df_users constraints seamlessly
+  // Upgrade existing live Neon df_users constraints & profile avatar column seamlessly
+  `ALTER TABLE df_users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE df_users DROP CONSTRAINT IF EXISTS df_users_staff_status_check`,
   `UPDATE df_users SET staff_status = 'working' WHERE staff_status = 'busy'`,
   `UPDATE df_users SET staff_status = 'offline' WHERE staff_status = 'not_available'`,

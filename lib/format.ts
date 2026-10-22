@@ -41,20 +41,27 @@ export function formatMoney(
   return `${isNegative ? "-" : ""}${prefix}${formatted}`;
 }
 
-export function todayInTimezone(timezone = "Asia/Karachi"): string {
+const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+
+// Work day resets every day at 4:00 AM in workspace timezone
+export function todayInTimezone(
+  timezone = "Asia/Karachi",
+  nowMs = Date.now()
+): string {
+  const shifted = new Date(nowMs - FOUR_HOURS_MS);
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).formatToParts(new Date());
+    }).formatToParts(shifted);
     const y = parts.find((p) => p.type === "year")?.value ?? "2026";
     const m = parts.find((p) => p.type === "month")?.value ?? "01";
     const d = parts.find((p) => p.type === "day")?.value ?? "01";
     return `${y}-${m}-${d}`;
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    return shifted.toISOString().slice(0, 10);
   }
 }
 

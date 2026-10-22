@@ -123,6 +123,29 @@
   opacity: 0.45;
 }
 
+@keyframes attendancePulseGlow {
+  0%,
+  100% {
+    text-shadow: 0 0 10px rgba(52, 211, 153, 0.75),
+      0 0 24px rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    text-shadow: 0 0 16px rgba(110, 231, 183, 0.95),
+      0 0 34px rgba(16, 185, 129, 0.7);
+  }
+}
+
+.attendance-glow-name {
+  color: #6ee7b7;
+  animation: attendancePulseGlow 2.4s ease-in-out infinite;
+}
+
+.attendance-glow-avatar {
+  border-color: #34d399 !important;
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.35),
+    0 0 20px rgba(16, 185, 129, 0.55);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

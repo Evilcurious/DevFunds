@@ -8,12 +8,15 @@ import {
   CalendarCheck2,
   CheckCircle2,
   Clock,
+  Crown,
   ExternalLink,
   Mail,
   Phone,
 } from "lucide-react";
 import { useApp } from "@/components/app-context";
+import { UserAvatar } from "@/components/user-avatar";
 import { ATTENDANCE_STATUS_META, STAFF_STATUS_META } from "@/lib/constants";
+import { formatTimeShort } from "@/lib/format";
 import type {
   AttendanceStatus,
   StaffStatus,
@@ -30,7 +33,7 @@ interface ProfileAttendanceItem {
 
 export default function StaffPublicProfilePage() {
   const params = useParams<{ id: string }>();
-  const { user, lang, t, toast } = useApp();
+  const { user, settings, lang, t, toast } = useApp();
 
   const [profile, setProfile] = useState<UserRecord | null>(null);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -88,7 +91,10 @@ export default function StaffPublicProfilePage() {
     return (
       <div className="royal-card rounded-2xl p-12 text-center space-y-3">
         <p className="text-sm text-muted-royal">Profile not found.</p>
-        <Link href="/staff" className="royal-btn inline-block rounded-xl px-4 py-2 text-xs">
+        <Link
+          href="/staff"
+          className="royal-btn inline-block rounded-xl px-4 py-2 text-xs"
+        >
           Back
         </Link>
       </div>
@@ -96,6 +102,14 @@ export default function StaffPublicProfilePage() {
   }
 
   const stMeta = STAFF_STATUS_META[profile.staffStatus];
+  const roleBadge =
+    profile.portalRole === "it_ceo"
+      ? "IT CEO"
+      : profile.portalRole === "bd_ceo"
+      ? "BD CEO"
+      : profile.portalRole === "erp_owner"
+      ? "ERP Owner"
+      : profile.sectionName || profile.sectionSlug?.toUpperCase() || "Staff";
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -111,22 +125,21 @@ export default function StaffPublicProfilePage() {
       <div className="royal-card rounded-3xl p-6 sm:p-8 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="royal-elevated flex h-16 w-16 items-center justify-center rounded-2xl text-xl font-extrabold gold-accent">
-              {profile.name
-                .split(" ")
-                .map((p) => p[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase()}
-            </div>
+            <UserAvatar
+              name={profile.name}
+              avatarUrl={profile.avatarUrl}
+              size="xl"
+            />
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-2xl font-extrabold">{profile.name}</h1>
-                {profile.sectionSlug && (
-                  <span className="rounded-md border border-[var(--border-subtle)] px-2.5 py-0.5 text-xs font-bold uppercase gold-accent">
-                    {profile.sectionName || profile.sectionSlug}
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1 rounded-md border border-[var(--accent-secondary)] px-2.5 py-0.5 text-xs font-bold uppercase gold-accent">
+                  {(profile.portalRole === "it_ceo" ||
+                    profile.portalRole === "bd_ceo") && (
+                    <Crown className="h-3 w-3" />
+                  )}
+                  {roleBadge}
+                </span>
               </div>
               <p className="text-sm text-muted-royal mt-0.5">
                 {profile.jobTitle}
@@ -147,7 +160,7 @@ export default function StaffPublicProfilePage() {
         {canChangeStatus && (
           <div className="royal-elevated rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-royal">
-              CEO Status Control
+              Status Control
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {(
@@ -170,7 +183,7 @@ export default function StaffPublicProfilePage() {
           </div>
         )}
 
-        {/* Public Performance Metrics: Todo Tasks Accepted & Attendance Rate */}
+        {/* Performance Metrics: Todo Tasks Accepted & Attendance Rate */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="royal-elevated rounded-2xl p-5 flex items-center justify-between">
             <div>
@@ -196,7 +209,7 @@ export default function StaffPublicProfilePage() {
                 {profile.attendanceRate ?? 0}%
               </div>
               <div className="text-xs text-muted-royal mt-1">
-                {profile.presentDaysCount ?? 0} / {profile.totalTrackedDays ?? 0} days present
+                {profile.presentDaysCount ?? 0} days marked present
               </div>
             </div>
             <CalendarCheck2 className="h-8 w-8 text-emerald-400 opacity-80" />
@@ -309,9 +322,16 @@ export default function StaffPublicProfilePage() {
                     key={h.workDate}
                     className="royal-elevated rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs"
                   >
-                    <span className="font-semibold tabular-nums">
-                      {h.workDate}
-                    </span>
+                    <div>
+                      <span className="font-semibold tabular-nums">
+                        {h.workDate}
+                      </span>
+                      {h.checkIn && (
+                        <span className="ms-2 text-muted-royal tabular-nums">
+                          · {formatTimeShort(h.checkIn, settings.timezone)}
+                        </span>
+                      )}
+                    </div>
                     <span
                       style={{ color: meta.color }}
                       className="font-bold uppercase"

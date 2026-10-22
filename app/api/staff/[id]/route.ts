@@ -49,6 +49,11 @@ export async function GET(
                AND att.status IN ('present', 'late', 'half_day')
             ) AS present_days_count,
             (SELECT COUNT(*)::int
+             FROM df_attendance attL
+             WHERE attL.user_id = u.id
+               AND attL.status = 'on_leave'
+            ) AS leave_days_count,
+            (SELECT COUNT(*)::int
              FROM df_attendance att2
              WHERE att2.user_id = u.id
                AND att2.status IN ('present', 'late', 'half_day', 'absent')
@@ -72,11 +77,11 @@ export async function GET(
       [id]
     ),
     rawQuery<Record<string, unknown>>(
-      `SELECT work_date, status, check_in, check_out
+      `SELECT work_date, status, check_in, check_out, marked_by_name
        FROM df_attendance
        WHERE user_id = $1
        ORDER BY work_date DESC
-       LIMIT 30`,
+       LIMIT 60`,
       [id]
     ),
   ]);
@@ -89,6 +94,7 @@ export async function GET(
       status: String(r.status),
       checkIn: r.check_in ? String(r.check_in) : null,
       checkOut: r.check_out ? String(r.check_out) : null,
+      markedByName: r.marked_by_name ? String(r.marked_by_name) : null,
     })),
   });
 }
@@ -133,6 +139,7 @@ export async function PATCH(
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
+    avatarUrl?: string;
     email?: string;
     password?: string;
     jobTitle?: string;
@@ -149,6 +156,10 @@ export async function PATCH(
     body.name !== undefined && body.name.trim()
       ? body.name.trim()
       : String(target.name);
+  const nextAvatar =
+    body.avatarUrl !== undefined
+      ? body.avatarUrl.trim()
+      : String(target.avatar_url ?? "");
   const nextEmail =
     body.email !== undefined && body.email.trim()
       ? body.email.trim().toLowerCase()
@@ -231,19 +242,21 @@ export async function PATCH(
   await rawQuery(
     `UPDATE df_users
      SET name = $1,
-         email = $2,
-         job_title = $3,
-         section_slug = $4,
-         phone = $5,
-         location = $6,
-         skills = $7::jsonb,
-         bio = $8,
-         free_time = $9,
-         staff_status = $10,
+         avatar_url = $2,
+         email = $3,
+         job_title = $4,
+         section_slug = $5,
+         phone = $6,
+         location = $7,
+         skills = $8::jsonb,
+         bio = $9,
+         free_time = $10,
+         staff_status = $11,
          updated_at = NOW()
-     WHERE id = $11`,
+     WHERE id = $12`,
     [
       nextName,
+      nextAvatar,
       nextEmail,
       nextTitle,
       nextSection,

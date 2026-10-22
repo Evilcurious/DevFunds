@@ -1,15 +1,27 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Check, KeyRound, Mail, Plus, Save, User, X } from "lucide-react";
+import {
+  Camera,
+  Check,
+  KeyRound,
+  Mail,
+  Plus,
+  Save,
+  Trash2,
+  User,
+  X,
+} from "lucide-react";
 import { useApp } from "@/components/app-context";
+import { UserAvatar, resizeAvatarFile } from "@/components/user-avatar";
 import { STAFF_STATUS_META } from "@/lib/constants";
 import type { StaffStatus } from "@/lib/types";
 
 export function AccountSettingsPanel() {
   const { user, setUser, lang, t, toast } = useApp();
 
-  // 1. Name, Status, Bio, Skills, Free Time, Phone
+  // 1. Avatar, Name, Status, Bio, Skills, Free Time, Phone
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? "");
   const [name, setName] = useState(user?.name ?? "");
   const [staffStatus, setStaffStatus] = useState<StaffStatus>(
     user?.staffStatus ?? "free"
@@ -36,6 +48,7 @@ export function AccountSettingsPanel() {
 
   useEffect(() => {
     if (!user) return;
+    setAvatarUrl(user.avatarUrl || "");
     setName(user.name);
     setStaffStatus(user.staffStatus);
     setBio(user.bio);
@@ -46,6 +59,15 @@ export function AccountSettingsPanel() {
   }, [user]);
 
   if (!user) return null;
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    resizeAvatarFile(file, (dataUrl) => {
+      setAvatarUrl(dataUrl);
+      toast("Photo ready — click Save Changes!");
+    });
+  };
 
   const addSkill = () => {
     const cleaned = skillInput.trim();
@@ -77,6 +99,7 @@ export function AccountSettingsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          avatarUrl,
           staffStatus,
           bio,
           freeTime,
@@ -89,7 +112,7 @@ export function AccountSettingsPanel() {
         setUser(data.user);
         setSkills(data.user.skills);
         setSkillInput("");
-        toast("Profile, skills & status updated!");
+        toast("Profile, photo, skills & status saved!");
       } else {
         toast(data.error || "Update failed", "error");
       }
@@ -157,7 +180,7 @@ export function AccountSettingsPanel() {
 
   return (
     <div className="space-y-6">
-      {/* 1. Name, Status, Bio, Free Time & Editable Skills */}
+      {/* 1. Profile Picture, Name, Status, Bio & Skills */}
       <form
         onSubmit={handleSaveProfile}
         className="royal-card rounded-2xl p-6 space-y-5"
@@ -165,8 +188,43 @@ export function AccountSettingsPanel() {
         <div className="flex items-center gap-2.5 border-b border-[var(--border-subtle)] pb-3">
           <User className="h-5 w-5 gold-accent" />
           <h3 className="text-base font-bold">
-            Name, Status, Bio & Skills
+            Profile Picture, Name, Status, Bio & Skills
           </h3>
+        </div>
+
+        {/* Profile Picture Upload Row */}
+        <div className="royal-elevated rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <UserAvatar name={name || user.name} avatarUrl={avatarUrl} size="xl" />
+            <div className="space-y-1">
+              <div className="text-sm font-bold">{name || user.name}</div>
+              <div className="text-xs text-muted-royal">{user.jobTitle}</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="royal-btn rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer">
+              <Camera className="h-4 w-4" />
+              <span>Upload Profile Picture</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                className="hidden"
+              />
+            </label>
+
+            {avatarUrl && (
+              <button
+                type="button"
+                onClick={() => setAvatarUrl("")}
+                className="royal-btn-outline rounded-xl p-2 text-rose-400"
+                title="Remove photo"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

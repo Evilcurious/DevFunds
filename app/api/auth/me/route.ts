@@ -36,6 +36,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
+    avatarUrl?: string;
     email?: string;
     emailPassword?: string;
     phone?: string;
@@ -83,6 +84,8 @@ export async function PATCH(request: Request) {
 
   const nextName =
     body.name !== undefined && body.name.trim() ? body.name.trim() : user.name;
+  const nextAvatar =
+    body.avatarUrl !== undefined ? body.avatarUrl.trim() : user.avatarUrl;
   const nextPhone =
     body.phone !== undefined ? body.phone.trim() : user.phone;
   const nextLocation =
@@ -108,13 +111,8 @@ export async function PATCH(request: Request) {
         400
       );
     }
-    if (
-      !bcrypt.compareSync(emailPass, String(existingRow.password_hash))
-    ) {
-      return jsonNoStore(
-        { error: "Current password is incorrect." },
-        401
-      );
+    if (!bcrypt.compareSync(emailPass, String(existingRow.password_hash))) {
+      return jsonNoStore({ error: "Current password is incorrect." }, 401);
     }
     const emailExists = await one<{ id: string }>(
       `SELECT id FROM df_users WHERE LOWER(email) = $1 AND id <> $2`,
@@ -136,10 +134,7 @@ export async function PATCH(request: Request) {
     const confirmPw = String(body.confirmPassword ?? body.newPassword);
 
     if (!oldPw) {
-      return jsonNoStore(
-        { error: "Please enter your old password." },
-        400
-      );
+      return jsonNoStore({ error: "Please enter your old password." }, 400);
     }
     if (!bcrypt.compareSync(oldPw, String(existingRow.password_hash))) {
       return jsonNoStore({ error: "Old password is incorrect." }, 401);
@@ -175,17 +170,19 @@ export async function PATCH(request: Request) {
   await rawQuery(
     `UPDATE df_users
      SET name = $1,
-         email = $2,
-         phone = $3,
-         location = $4,
-         skills = $5::jsonb,
-         bio = $6,
-         free_time = $7,
-         staff_status = $8,
+         avatar_url = $2,
+         email = $3,
+         phone = $4,
+         location = $5,
+         skills = $6::jsonb,
+         bio = $7,
+         free_time = $8,
+         staff_status = $9,
          updated_at = NOW()
-     WHERE id = $9`,
+     WHERE id = $10`,
     [
       nextName,
+      nextAvatar,
       nextEmail,
       nextPhone,
       nextLocation,

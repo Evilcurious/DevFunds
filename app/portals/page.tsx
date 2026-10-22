@@ -105,10 +105,18 @@ export default function PortalsHubPage() {
       <div className="space-y-6">
         <div className="royal-card flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-3.5">
           <div className="flex items-center gap-2.5 text-sm font-bold">
-            <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: stMeta.dotColor }}
-            />
+            {user.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={user.name}
+                className="h-8 w-8 rounded-full object-cover border border-[var(--border-subtle)]"
+              />
+            ) : (
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: stMeta.dotColor }}
+              />
+            )}
             <span>
               {lang === "ur"
                 ? PORTAL_META[user.portalRole].urduTitle

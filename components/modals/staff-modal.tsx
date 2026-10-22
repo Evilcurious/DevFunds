@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Camera, X } from "lucide-react";
+import { UserAvatar, resizeAvatarFile } from "@/components/user-avatar";
 import type {
   PortalRole,
   SectionRecord,
@@ -29,6 +30,7 @@ export function StaffModal({
   const lockedSection =
     actorRole === "it_ceo" ? "it" : actorRole === "bd_ceo" ? "bd" : null;
 
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,6 +49,7 @@ export function StaffModal({
     if (!open) return;
     setError("");
     if (editing) {
+      setAvatarUrl(editing.avatarUrl || "");
       setName(editing.name);
       setEmail(editing.email);
       setPassword("");
@@ -61,6 +64,7 @@ export function StaffModal({
       setFreeTime(editing.freeTime);
       setStaffStatus(editing.staffStatus);
     } else {
+      setAvatarUrl("");
       setName("");
       setEmail("");
       setPassword("");
@@ -91,6 +95,7 @@ export function StaffModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          avatarUrl,
           email,
           ...(password ? { password } : {}),
           portalRole: actorRole === "erp_owner" ? portalRole : "staff",
@@ -146,6 +151,29 @@ export function StaffModal({
               {error}
             </div>
           )}
+
+          {/* Profile Picture Upload */}
+          <div className="royal-elevated rounded-xl p-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <UserAvatar name={name || "User"} avatarUrl={avatarUrl} size="md" />
+              <span className="text-xs font-semibold text-muted-royal">
+                Profile Picture
+              </span>
+            </div>
+            <label className="royal-btn-outline rounded-lg px-3 py-1.5 text-xs inline-flex items-center gap-1.5 cursor-pointer">
+              <Camera className="h-3.5 w-3.5 gold-accent" />
+              <span>Upload Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) resizeAvatarFile(file, setAvatarUrl);
+                }}
+                className="hidden"
+              />
+            </label>
+          </div>
 
           {actorRole === "erp_owner" && !editing && (
             <div>

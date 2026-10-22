@@ -32,7 +32,43 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const includeLeaders = url.searchParams.get("includeLeaders") === "true";
 
-  const [sectionRows, userRows] = await Promise.all([
+  const baseSelect = `
+    SELECT u.*,
+           s.name AS section_name,
+           a.status AS today_attendance_status,
+           a.check_in AS today_check_in,
+           a.check_out AS today_check_out,
+           (SELECT COUNT(*)::int
+            FROM df_tasks tk
+            WHERE tk.assigned_to_id = u.id
+              AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
+           ) AS accepted_tasks_count,
+           (SELECT COUNT(*)::int
+            FROM df_tasks tk2
+            WHERE tk2.assigned_to_id = u.id
+              AND tk2.status IN ('submitted', 'completed')
+           ) AS completed_tasks_count,
+           (SELECT COUNT(*)::int
+            FROM df_attendance att
+            WHERE att.user_id = u.id
+              AND att.status IN ('present', 'late', 'half_day')
+           ) AS present_days_count,
+           (SELECT COUNT(*)::int
+            FROM df_attendance attL
+            WHERE attL.user_id = u.id
+              AND attL.status = 'on_leave'
+           ) AS leave_days_count,
+           (SELECT COUNT(*)::int
+            FROM df_attendance att2
+            WHERE att2.user_id = u.id
+              AND att2.status IN ('present', 'late', 'half_day', 'absent')
+           ) AS total_tracked_days
+    FROM df_users u
+    LEFT JOIN df_sections s ON s.slug = u.section_slug
+    LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
+  `;
+
+  const [sectionRows, ceoRows, userRows] = await Promise.all([
     rawQuery<Record<string, unknown>>(
       `SELECT s.*,
               (SELECT COUNT(*)::int FROM df_users u WHERE u.portal_role = 'staff' AND u.section_slug = s.slug) AS staff_count,
@@ -41,34 +77,13 @@ export async function GET(request: Request) {
        ORDER BY s.sort_order ASC, s.created_at ASC`
     ),
     rawQuery<Record<string, unknown>>(
-      `SELECT u.*,
-              s.name AS section_name,
-              a.status AS today_attendance_status,
-              a.check_in AS today_check_in,
-              a.check_out AS today_check_out,
-              (SELECT COUNT(*)::int
-               FROM df_tasks tk
-               WHERE tk.assigned_to_id = u.id
-                 AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
-              ) AS accepted_tasks_count,
-              (SELECT COUNT(*)::int
-               FROM df_tasks tk2
-               WHERE tk2.assigned_to_id = u.id
-                 AND tk2.status IN ('submitted', 'completed')
-              ) AS completed_tasks_count,
-              (SELECT COUNT(*)::int
-               FROM df_attendance att
-               WHERE att.user_id = u.id
-                 AND att.status IN ('present', 'late', 'half_day')
-              ) AS present_days_count,
-              (SELECT COUNT(*)::int
-               FROM df_attendance att2
-               WHERE att2.user_id = u.id
-                 AND att2.status IN ('present', 'late', 'half_day', 'absent')
-              ) AS total_tracked_days
-       FROM df_users u
-       LEFT JOIN df_sections s ON s.slug = u.section_slug
-       LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
+      `${baseSelect}
+       WHERE u.portal_role IN ('it_ceo', 'bd_ceo')
+       ORDER BY CASE WHEN u.portal_role = 'it_ceo' THEN 1 ELSE 2 END ASC`,
+      [today]
+    ),
+    rawQuery<Record<string, unknown>>(
+      `${baseSelect}
        ${includeLeaders ? "" : "WHERE u.portal_role = 'staff'"}
        ORDER BY u.joined_at DESC`,
       [today]
@@ -77,6 +92,7 @@ export async function GET(request: Request) {
 
   return jsonNoStore({
     sections: sectionRows.map(mapSectionRow),
+    ceos: ceoRows.map(mapUserRow),
     staff: userRows.map(mapUserRow),
   });
 }
@@ -95,6 +111,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
+    avatarUrl?: string;
     email?: string;
     password?: string;
     portalRole?: PortalRole;
@@ -191,17 +208,24 @@ export async function POST(request: Request) {
 
   await rawQuery(
     `INSERT INTO df_users (
-       id, name, email, password_hash, portal_role, job_title,
+       id, name, avatar_url, email, password_hash, portal_role, job_title,
        section_slug, phone, location, skills, bio, free_time, staff_status
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)`,
     [
       id,
       name,
+      String(body.avatarUrl ?? "").trim(),
       email,
       hash,
       targetRole,
       String(body.jobTitle ?? "").trim() ||
-        (targetRole === "staff" ? "Team Member" : targetRole.toUpperCase()),
+        (targetRole === "staff"
+          ? "Team Member"
+          : targetRole === "it_ceo"
+          ? "IT CEO"
+          : targetRole === "bd_ceo"
+          ? "BD CEO"
+          : "ERP Owner"),
       targetSection,
       String(body.phone ?? "").trim(),
       String(body.location ?? "").trim(),

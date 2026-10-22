@@ -32,12 +32,12 @@ export async function GET(request: Request) {
   }
   await ensureBootstrapped();
   const settings = await getAppSettings();
+  // Active work day starts every day at 4:00 AM in workspace timezone!
   const today = todayInTimezone(settings.timezone);
   const url = new URL(request.url);
   const dateParam = url.searchParams.get("date");
   const workDate =
     dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
-  const sectionFilter = url.searchParams.get("section")?.trim().toLowerCase();
 
   const [sectionRows, rows, monthAggRows, leaveRows] = await Promise.all([
     rawQuery<Record<string, unknown>>(
@@ -46,51 +46,52 @@ export async function GET(request: Request) {
        FROM df_sections s
        ORDER BY s.sort_order ASC`
     ),
-    sectionFilter && sectionFilter !== "all"
-      ? rawQuery<Record<string, unknown>>(
-          `SELECT u.id AS user_id,
-                  u.name AS user_name,
-                  u.email AS user_email,
-                  u.job_title,
-                  u.section_slug,
-                  s.name AS section_name,
-                  u.staff_status,
-                  a.id AS attendance_id,
-                  a.status AS attendance_status,
-                  a.check_in,
-                  a.check_out,
-                  a.note,
-                  a.marked_by_name,
-                  a.updated_at AS attendance_updated_at
-           FROM df_users u
-           LEFT JOIN df_sections s ON s.slug = u.section_slug
-           LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
-           WHERE u.portal_role = 'staff' AND u.section_slug = $2
-           ORDER BY u.name ASC`,
-          [workDate, sectionFilter]
-        )
-      : rawQuery<Record<string, unknown>>(
-          `SELECT u.id AS user_id,
-                  u.name AS user_name,
-                  u.email AS user_email,
-                  u.job_title,
-                  u.section_slug,
-                  s.name AS section_name,
-                  u.staff_status,
-                  a.id AS attendance_id,
-                  a.status AS attendance_status,
-                  a.check_in,
-                  a.check_out,
-                  a.note,
-                  a.marked_by_name,
-                  a.updated_at AS attendance_updated_at
-           FROM df_users u
-           LEFT JOIN df_sections s ON s.slug = u.section_slug
-           LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
-           WHERE u.portal_role = 'staff'
-           ORDER BY u.section_slug ASC NULLS LAST, u.name ASC`,
-          [workDate]
-        ),
+    rawQuery<Record<string, unknown>>(
+      `SELECT u.id AS user_id,
+              u.name AS user_name,
+              u.email AS user_email,
+              u.avatar_url,
+              u.portal_role,
+              u.job_title,
+              u.joined_at,
+              CASE
+                WHEN u.portal_role = 'it_ceo' THEN 'it'
+                WHEN u.portal_role = 'bd_ceo' THEN 'bd'
+                ELSE u.section_slug
+              END AS section_slug,
+              s.name AS section_name,
+              u.staff_status,
+              a.id AS attendance_id,
+              a.status AS attendance_status,
+              a.check_in,
+              a.check_out,
+              a.note,
+              a.marked_by_name,
+              a.updated_at AS attendance_updated_at,
+              (SELECT COUNT(*)::int
+               FROM df_attendance att
+               WHERE att.user_id = u.id
+                 AND att.status IN ('present', 'late', 'half_day')
+              ) AS present_days_count,
+              (SELECT COUNT(*)::int
+               FROM df_attendance attL
+               WHERE attL.user_id = u.id
+                 AND attL.status = 'on_leave'
+              ) AS leave_days_count,
+              (SELECT COUNT(*)::int
+               FROM df_attendance att2
+               WHERE att2.user_id = u.id
+                 AND att2.status IN ('present', 'late', 'half_day', 'absent')
+              ) AS total_tracked_days
+       FROM df_users u
+       LEFT JOIN df_sections s ON s.slug = u.section_slug
+       LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
+       WHERE u.portal_role IN ('it_ceo', 'bd_ceo', 'staff')
+       ORDER BY
+         CASE WHEN u.portal_role IN ('it_ceo', 'bd_ceo') THEN 0 ELSE 1 END ASC,
+         u.name ASC`,
+      [workDate]
+    ),
     rawQuery<Record<string, unknown>>(
       `SELECT COUNT(*) FILTER (WHERE status = 'present')::int AS month_present,
               COUNT(*) FILTER (WHERE status = 'late')::int AS month_late,
@@ -127,6 +128,7 @@ export async function GET(request: Request) {
   return jsonNoStore({
     workDate,
     today,
+    resetSchedule: "04:00 AM",
     sections: sectionRows.map(mapSectionRow),
     summary,
     records,
@@ -157,11 +159,11 @@ export async function POST(request: Request) {
       ? body.workDate
       : today;
 
-  // One-click self "Present" button on Attendance page (or check_in from Staff Portal)
+  // One-click "Mark Present" on Attendance board (works for self, CEOs, and team members!)
   if (action === "present" || action === "check_in") {
-    const targetId = String(body.userId || actor?.id || "").trim();
+    const targetId = String(body.userId || actor.id || "").trim();
     if (!targetId) {
-      return jsonNoStore({ error: "Select a team member." }, 400);
+      return jsonNoStore({ error: "Select a member." }, 400);
     }
 
     const targetUser = await one<Record<string, unknown>>(
@@ -181,6 +183,8 @@ export async function POST(request: Request) {
        DO UPDATE SET
          status = 'present',
          check_in = COALESCE(df_attendance.check_in, EXCLUDED.check_in),
+         marked_by_id = EXCLUDED.marked_by_id,
+         marked_by_name = EXCLUDED.marked_by_name,
          updated_at = NOW()`,
       [
         randomUUID(),
@@ -188,28 +192,23 @@ export async function POST(request: Request) {
         workDate,
         nowIso,
         String(body.note ?? "").trim(),
-        actor?.id ?? targetId,
-        actor?.name ?? String(targetUser.name),
+        actor.id,
+        actor.name,
       ]
     );
 
-    if (actor) {
-      await logAudit({
-        actor,
-        action: "attendance.present",
-        targetType: "attendance",
-        summary: `${String(targetUser.name)} marked Present (${workDate})`,
-      });
-    }
+    await logAudit({
+      actor,
+      action: "attendance.present",
+      targetType: "attendance",
+      summary: `${String(targetUser.name)} marked Present (${workDate})`,
+    });
 
-    return jsonNoStore({ ok: true, status: "present" });
+    return jsonNoStore({ ok: true, status: "present", workDate });
   }
 
   if (action === "check_out") {
-    const targetId = String(body.userId || actor?.id || "").trim();
-    if (!targetId) {
-      return jsonNoStore({ error: "Member required." }, 400);
-    }
+    const targetId = String(body.userId || actor.id || "").trim();
     await rawQuery(
       `UPDATE df_attendance
        SET check_out = $1, updated_at = NOW()
@@ -219,18 +218,13 @@ export async function POST(request: Request) {
     return jsonNoStore({ ok: true, action: "check_out" });
   }
 
-  // Admin / CEO status override
-  if (!actor) {
-    return jsonNoStore({ error: "Sign in required." }, 401);
-  }
-
   const targetUserId = String(body.userId || actor.id);
   const targetUser = await one<Record<string, unknown>>(
     `SELECT * FROM df_users WHERE id = $1`,
     [targetUserId]
   );
   if (!targetUser) {
-    return jsonNoStore({ error: "Staff member not found." }, 404);
+    return jsonNoStore({ error: "Member not found." }, 404);
   }
 
   const targetSection = targetUser.section_slug
@@ -241,10 +235,7 @@ export async function POST(request: Request) {
     targetUserId !== actor.id &&
     !canManageStaffSection(actor, targetSection)
   ) {
-    return jsonNoStore(
-      { error: "Not authorized for this section." },
-      403
-    );
+    return jsonNoStore({ error: "Not authorized." }, 403);
   }
 
   const status: AttendanceStatus =

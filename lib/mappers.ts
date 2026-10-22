@@ -33,6 +33,34 @@ function normalizeTaskStatus(raw: unknown): TaskStatus {
   return "pending";
 }
 
+function computeAttendanceRate(row: Record<string, unknown>): {
+  presentDays: number;
+  totalDays: number;
+  rate: number;
+} {
+  const presentDays = toNum(row.present_days_count, 0);
+  const rawTracked = toNum(row.total_tracked_days, 0);
+
+  // Elapsed days since joining (at least 1 day so marking day 1 immediately shows 100%)
+  const joinedIso = toIso(row.joined_at);
+  const joinedMs = new Date(joinedIso).getTime();
+  const elapsedDays = Number.isFinite(joinedMs)
+    ? Math.max(1, Math.floor((Date.now() - joinedMs) / 86_400_000) + 1)
+    : 1;
+  const leaveDays = toNum(row.leave_days_count, 0);
+  const denominator = Math.max(
+    presentDays,
+    rawTracked,
+    Math.max(1, elapsedDays - leaveDays)
+  );
+  const rate =
+    presentDays <= 0
+      ? 0
+      : Math.min(100, Math.round((presentDays / denominator) * 100));
+
+  return { presentDays, totalDays: denominator, rate };
+}
+
 export function mapSectionRow(row: Record<string, unknown>): SectionRecord {
   return {
     id: String(row.id),
@@ -58,15 +86,13 @@ export function mapUserRow(row: Record<string, unknown>): UserRecord {
     ? skillsRaw.map((s) => String(s).trim()).filter(Boolean)
     : [];
 
-  const presentDays = toNum(row.present_days_count, 0);
-  const totalTracked = toNum(row.total_tracked_days, 0);
-  const attendanceRate =
-    totalTracked > 0 ? Math.round((presentDays / totalTracked) * 100) : 0;
+  const { presentDays, totalDays, rate } = computeAttendanceRate(row);
 
   return {
     id: String(row.id),
     name: String(row.name),
     email: String(row.email),
+    avatarUrl: String(row.avatar_url ?? ""),
     portalRole: String(row.portal_role) as PortalRole,
     jobTitle: String(row.job_title ?? ""),
     sectionSlug: row.section_slug ? String(row.section_slug) : null,
@@ -80,8 +106,8 @@ export function mapUserRow(row: Record<string, unknown>): UserRecord {
     acceptedTasksCount: toNum(row.accepted_tasks_count, 0),
     completedTasksCount: toNum(row.completed_tasks_count, 0),
     presentDaysCount: presentDays,
-    totalTrackedDays: totalTracked,
-    attendanceRate,
+    totalTrackedDays: totalDays,
+    attendanceRate: rate,
     todayAttendanceStatus: row.today_attendance_status
       ? (String(row.today_attendance_status) as AttendanceStatus)
       : null,
@@ -137,11 +163,14 @@ export function mapAttendanceRow(
   row: Record<string, unknown>,
   workDate: string
 ): AttendanceRecord {
+  const { presentDays, rate } = computeAttendanceRate(row);
   return {
     id: row.attendance_id ? String(row.attendance_id) : null,
     userId: String(row.user_id),
     userName: String(row.user_name),
     userEmail: String(row.user_email),
+    avatarUrl: String(row.avatar_url ?? ""),
+    portalRole: String(row.portal_role ?? "staff") as PortalRole,
     jobTitle: String(row.job_title ?? ""),
     sectionSlug: row.section_slug ? String(row.section_slug) : null,
     sectionName: row.section_name
@@ -150,6 +179,8 @@ export function mapAttendanceRow(
       ? String(row.section_slug).toUpperCase()
       : null,
     staffStatus: normalizeStaffStatus(row.staff_status),
+    presentDaysCount: presentDays,
+    attendanceRate: rate,
     workDate,
     status: row.attendance_status
       ? (String(row.attendance_status) as AttendanceStatus)

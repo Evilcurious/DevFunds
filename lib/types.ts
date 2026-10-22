@@ -76,6 +76,7 @@ export interface UserRecord {
   id: string;
   name: string;
   email: string;
+  avatarUrl: string;
   portalRole: PortalRole;
   jobTitle: string;
   sectionSlug: string | null;
@@ -138,10 +139,14 @@ export interface AttendanceRecord {
   userId: string;
   userName: string;
   userEmail: string;
+  avatarUrl: string;
+  portalRole: PortalRole;
   jobTitle: string;
   sectionSlug: string | null;
   sectionName: string | null;
   staffStatus: StaffStatus;
+  attendanceRate?: number;
+  presentDaysCount?: number;
   workDate: string;
   status: AttendanceStatus | "unmarked";
   checkIn: string | null;

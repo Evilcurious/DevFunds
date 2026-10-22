@@ -1,0 +1,103 @@
+import { rawQuery } from "./db";
+
+const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS df_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_sections (
+    id TEXT PRIMARY KEY,
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT 'blue',
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INTEGER NOT NULL DEFAULT 10,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    portal_role TEXT NOT NULL CHECK (portal_role IN ('erp_owner', 'it_ceo', 'bd_ceo', 'staff')),
+    job_title TEXT NOT NULL DEFAULT '',
+    section_slug TEXT,
+    phone TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    skills JSONB NOT NULL DEFAULT '[]'::jsonb,
+    bio TEXT NOT NULL DEFAULT '',
+    free_time TEXT NOT NULL DEFAULT '',
+    staff_status TEXT NOT NULL DEFAULT 'active' CHECK (staff_status IN ('active', 'free', 'busy', 'not_available')),
+    token_version INTEGER NOT NULL DEFAULT 1,
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_spending (
+    id TEXT PRIMARY KEY,
+    section_slug TEXT NOT NULL,
+    title TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'Other Operational Expense',
+    payment_method TEXT NOT NULL DEFAULT 'Bank Transfer',
+    reference_note TEXT NOT NULL DEFAULT '',
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
+    spent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by_id TEXT,
+    created_by_name TEXT NOT NULL DEFAULT 'Admin',
+    created_by_role TEXT NOT NULL DEFAULT 'erp_owner',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_earnings (
+    id TEXT PRIMARY KEY,
+    customer_name TEXT NOT NULL,
+    customer_company TEXT NOT NULL DEFAULT '',
+    customer_contact TEXT NOT NULL DEFAULT '',
+    project_title TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    work_link TEXT NOT NULL DEFAULT '',
+    amount_paid NUMERIC(14, 2) NOT NULL CHECK (amount_paid >= 0),
+    payment_method TEXT NOT NULL DEFAULT 'Bank Transfer',
+    department_credit TEXT NOT NULL DEFAULT 'BD & IT',
+    earned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by_id TEXT,
+    created_by_name TEXT NOT NULL DEFAULT 'Admin',
+    created_by_role TEXT NOT NULL DEFAULT 'erp_owner',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_attendance (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
+    work_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('present', 'late', 'half_day', 'on_leave', 'absent')),
+    check_in TIMESTAMPTZ,
+    check_out TIMESTAMPTZ,
+    note TEXT NOT NULL DEFAULT '',
+    marked_by_id TEXT,
+    marked_by_name TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, work_date)
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_audit_logs (
+    id TEXT PRIMARY KEY,
+    actor_id TEXT,
+    actor_name TEXT NOT NULL,
+    actor_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_df_users_section ON df_users(section_slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_users_role ON df_users(portal_role)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_spending_section ON df_spending(section_slug, spent_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_earnings_date ON df_earnings(earned_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_attendance_date ON df_attendance(work_date)`,
+];
+
+export async function runMigrations(): Promise<void> {
+  for (const sql of SCHEMA_STATEMENTS) {
+    await rawQuery(sql);
+  }
+}

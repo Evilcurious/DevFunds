@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devfunds
+      POSTGRES_PASSWORD: devfunds_password_change_me
+      POSTGRES_DB: devfunds
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devfunds -d devfunds"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://devfunds:devfunds_password_change_me@postgres:5432/devfunds
+      AUTH_SECRET: change_this_to_a_long_random_production_secret_key
+
+volumes:
+  postgres_data:

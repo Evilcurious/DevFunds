@@ -2,7 +2,7 @@ import { getSessionUser, jsonNoStore, logAudit } from "@/lib/auth";
 import { getAppSettings, normalizeSettings } from "@/lib/bootstrap";
 import { getDbMode, rawQuery } from "@/lib/db";
 import { mapAuditRow } from "@/lib/mappers";
-import type { CurrencyCode } from "@/lib/types";
+import type { AppSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export async function GET() {
   let auditLogs: ReturnType<typeof mapAuditRow>[] = [];
   if (user?.portalRole === "erp_owner") {
     const rows = await rawQuery<Record<string, unknown>>(
-      `SELECT * FROM df_audit_logs ORDER BY created_at DESC LIMIT 60`
+      `SELECT * FROM df_audit_logs ORDER BY created_at DESC LIMIT 50`
     );
     auditLogs = rows.map(mapAuditRow);
   }
@@ -31,29 +31,28 @@ export async function PATCH(request: Request) {
   const actor = await getSessionUser();
   if (!actor || actor.portalRole !== "erp_owner") {
     return jsonNoStore(
-      { error: "Only the ERP Owner can modify workspace settings." },
+      { error: "Only ERP Owner can modify global settings." },
       403
     );
   }
 
   const current = await getAppSettings();
-  const body = (await request.json().catch(() => ({}))) as {
-    companyName?: string;
-    tagline?: string;
-    currency?: CurrencyCode;
-    timezone?: string;
-    showSetupHint?: boolean;
-  };
+  const body = (await request.json().catch(() => ({}))) as Partial<AppSettings>;
 
   const nextSettings = normalizeSettings({
     ...current,
     ...(body.companyName !== undefined ? { companyName: body.companyName } : {}),
-    ...(body.tagline !== undefined ? { tagline: body.tagline } : {}),
+    ...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
     ...(body.currency !== undefined ? { currency: body.currency } : {}),
     ...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
-    ...(body.showSetupHint !== undefined
-      ? { showSetupHint: body.showSetupHint }
+    ...(body.language !== undefined ? { language: body.language } : {}),
+    ...(body.themeId !== undefined ? { themeId: body.themeId } : {}),
+    ...(body.customTheme !== undefined ? { customTheme: body.customTheme } : {}),
+    ...(body.textColorOverride !== undefined
+      ? { textColorOverride: body.textColorOverride }
       : {}),
+    ...(body.fontId !== undefined ? { fontId: body.fontId } : {}),
+    ...(body.customFonts !== undefined ? { customFonts: body.customFonts } : {}),
   });
 
   await rawQuery(
@@ -68,7 +67,7 @@ export async function PATCH(request: Request) {
     actor,
     action: "settings.updated",
     targetType: "settings",
-    summary: `Updated workspace settings (${nextSettings.companyName}, currency: ${nextSettings.currency})`,
+    summary: `Updated studio settings (${nextSettings.companyName}, theme: ${nextSettings.themeId})`,
   });
 
   return jsonNoStore({ settings: nextSettings });

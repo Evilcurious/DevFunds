@@ -4,28 +4,23 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowDownRight,
-  ArrowRight,
   ArrowUpRight,
   CalendarCheck2,
-  CheckCircle2,
   RefreshCw,
-  ShieldCheck,
   TrendingUp,
   UserCheck,
   Users,
-  Wallet,
 } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import {
   EarningTopUpCard,
   SpendingTopUpCard,
 } from "@/components/topup-cards";
-import { PORTAL_META } from "@/lib/constants";
 import { formatMoney } from "@/lib/format";
 import type { OverviewResponse } from "@/lib/types";
 
 export default function DashboardPage() {
-  const { user, settings, setSettings } = useApp();
+  const { settings, setSettings, t } = useApp();
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,361 +71,191 @@ export default function DashboardPage() {
     unmarkedToday: 0,
   };
 
-  const bdPct =
-    m.totalSpending > 0
-      ? Math.round((m.bdSpending / m.totalSpending) * 100)
-      : 0;
-  const itPct =
-    m.totalSpending > 0
-      ? Math.round((m.itSpending / m.totalSpending) * 100)
-      : 0;
-
   return (
-    <div className="space-y-7">
-      {/* Top Executive Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-700 via-blue-600 to-sky-600 p-6 sm:p-8 text-white shadow-lg shadow-blue-700/15">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold tracking-wide text-blue-50 backdrop-blur-xs">
-              <span className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse" />
-              <span>LIVE OPERATIONS & FINANCIAL DASHBOARD</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              {settings.companyName} Overview
-            </h1>
-            <p className="text-sm sm:text-base text-blue-100 leading-relaxed">
-              Real-time tracking across Successful Customers, Total Earning, BD &
-              IT Spending, Net Profit, Staff Directory, and Daily Attendance.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => loadOverview(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 px-4 py-2.5 text-sm font-semibold text-white transition-colors"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-              />
-              <span>Refresh</span>
-            </button>
-
-            <Link
-              href="/portals"
-              className="inline-flex items-center gap-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 px-4 py-2.5 text-sm font-bold shadow-sm transition-colors"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              <span>
-                {user
-                  ? `Manage in ${PORTAL_META[user.portalRole].title}`
-                  : "Open Admin / Staff Portals"}
-              </span>
-            </Link>
-          </div>
+    <div className="space-y-8">
+      {/* Minimal Executive Title Row */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            {t("dashboard")}
+          </h1>
+          <div className="gold-line w-28" />
         </div>
+
+        <button
+          type="button"
+          onClick={() => loadOverview(true)}
+          disabled={refreshing}
+          className="royal-btn-outline inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+        </button>
       </div>
 
-      {/* PART 1: THE 4 CORE KPI CARDS (Total Customers, Total Earning, Total Spending, Total Staff) */}
-      <section aria-label="Core Dashboard Metrics">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-          {/* Card 1: Total Customers */}
-          <Link
-            href="/earning"
-            className="group relative overflow-hidden rounded-2xl border border-blue-100 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs hover:shadow-lg hover:border-blue-400 dark:hover:border-blue-500 transition-all"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                  Total Customers
-                </p>
-                <div className="mt-3 text-3xl sm:text-4xl font-extrabold tabular-nums text-slate-900 dark:text-white">
-                  {loading ? "—" : m.totalCustomers}
-                </div>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                <UserCheck className="h-6 w-6" />
-              </div>
+      {/* 4 Core KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <Link
+          href="/earning"
+          className="royal-card royal-card-hover rounded-2xl p-6 flex items-start justify-between"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-royal">
+              {t("totalCustomers")}
+            </p>
+            <div className="mt-3 text-3xl font-bold tabular-nums">
+              {loading ? "—" : m.totalCustomers}
             </div>
-            <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-300">
-              <span>Successful completed clients</span>
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
+          </div>
+          <UserCheck className="h-5 w-5 gold-accent shrink-0" />
+        </Link>
 
-          {/* Card 2: Total Earning */}
-          <Link
-            href="/earning"
-            className="group relative overflow-hidden rounded-2xl border border-blue-100 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs hover:shadow-lg hover:border-blue-400 dark:hover:border-blue-500 transition-all"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Total Earning
-                </p>
-                <div className="mt-3 text-2xl sm:text-3xl font-extrabold tabular-nums text-slate-900 dark:text-white">
-                  {loading ? "—" : formatMoney(m.totalEarning, currency)}
-                </div>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <ArrowUpRight className="h-6 w-6" />
-              </div>
+        <Link
+          href="/earning"
+          className="royal-card royal-card-hover rounded-2xl p-6 flex items-start justify-between"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-royal">
+              {t("totalEarning")}
+            </p>
+            <div className="mt-3 text-2xl sm:text-3xl font-bold tabular-nums text-emerald-400">
+              {loading ? "—" : formatMoney(m.totalEarning, currency)}
             </div>
-            <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-300">
-              <span>View customer top-up stream</span>
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
+          </div>
+          <ArrowUpRight className="h-5 w-5 text-emerald-400 shrink-0" />
+        </Link>
 
-          {/* Card 3: Total Spending */}
-          <Link
-            href="/spending"
-            className="group relative overflow-hidden rounded-2xl border border-blue-100 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs hover:shadow-lg hover:border-blue-400 dark:hover:border-blue-500 transition-all"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                  Total Spending
-                </p>
-                <div className="mt-3 text-2xl sm:text-3xl font-extrabold tabular-nums text-slate-900 dark:text-white">
-                  {loading ? "—" : formatMoney(m.totalSpending, currency)}
-                </div>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-300 group-hover:bg-rose-600 group-hover:text-white transition-colors">
-                <ArrowDownRight className="h-6 w-6" />
-              </div>
+        <Link
+          href="/spending"
+          className="royal-card royal-card-hover rounded-2xl p-6 flex items-start justify-between"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-royal">
+              {t("totalSpending")}
+            </p>
+            <div className="mt-3 text-2xl sm:text-3xl font-bold tabular-nums text-rose-400">
+              {loading ? "—" : formatMoney(m.totalSpending, currency)}
             </div>
-            <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs font-semibold text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-300">
-              <span>BD + IT spending breakdown</span>
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
+          </div>
+          <ArrowDownRight className="h-5 w-5 text-rose-400 shrink-0" />
+        </Link>
 
-          {/* Card 4: Total Staff -> Opens /staff page showing all staff with roles, contact & skills in BD & IT sections! */}
-          <Link
-            href="/staff"
-            className="group relative overflow-hidden rounded-2xl border-2 border-blue-200 dark:border-blue-500/40 bg-white dark:bg-[#111C35] p-6 shadow-xs hover:shadow-lg hover:border-blue-600 dark:hover:border-blue-400 transition-all"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                  Total Staff
-                </p>
-                <div className="mt-3 text-3xl sm:text-4xl font-extrabold tabular-nums text-slate-900 dark:text-white">
-                  {loading ? "—" : m.totalStaff}
-                </div>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25 group-hover:scale-105 transition-transform">
-                <Users className="h-6 w-6" />
-              </div>
+        <Link
+          href="/staff"
+          className="royal-card royal-card-hover rounded-2xl p-6 flex items-start justify-between"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest gold-accent">
+              {t("totalStaff")}
+            </p>
+            <div className="mt-3 text-3xl font-bold tabular-nums">
+              {loading ? "—" : m.totalStaff}
             </div>
-            <div className="mt-5 flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 text-xs font-bold text-blue-700 dark:text-blue-300">
-              <span>
-                Click to view BD & IT sections ({m.activeStaff + m.freeStaff} available)
-              </span>
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-        </div>
-      </section>
+          </div>
+          <Users className="h-5 w-5 gold-accent shrink-0" />
+        </Link>
+      </div>
 
-      {/* Secondary Executive Row: Net Profit Ledger + Today's Attendance Tracker */}
+      {/* Executive Summary Bar: Net Profit + Department Spend + Today's Attendance */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Net Profit & Department Split */}
-        <div className="lg:col-span-7 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  Net Profit & Department Spending Split
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Calculated live as Total Earning minus Total Spending
-                </p>
-              </div>
+        <div className="lg:col-span-7 royal-card rounded-2xl p-6 flex flex-col justify-between gap-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <TrendingUp className="h-5 w-5 gold-accent" />
+              <span className="text-sm font-bold uppercase tracking-wider">
+                {t("netProfit")}
+              </span>
             </div>
-
-            <div
-              className={`rounded-xl px-4 py-2 border font-extrabold text-xl tabular-nums ${
-                m.netProfit >= 0
-                  ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30"
-                  : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30"
-              }`}
-            >
+            <div className="text-2xl font-bold tabular-nums gold-accent">
               {formatMoney(m.netProfit, currency)}
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-2 gap-4">
             <Link
               href="/spending?tab=bd"
-              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-[#F6F9FF] dark:bg-slate-900/70 p-4 hover:border-blue-400 transition-colors"
+              className="royal-elevated rounded-xl p-4 hover:border-[var(--accent-primary)] transition-colors"
             >
-              <div className="flex items-center justify-between text-xs font-bold uppercase text-sky-700 dark:text-sky-300">
-                <span>BD Spending</span>
-                <span>{bdPct}%</span>
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-royal">
+                {t("bdSpending")}
               </div>
-              <div className="mt-2 text-lg font-extrabold tabular-nums text-slate-900 dark:text-white">
+              <div className="mt-1.5 text-lg font-bold tabular-nums">
                 {formatMoney(m.bdSpending, currency)}
-              </div>
-              <div className="mt-2 h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-sky-500 rounded-full"
-                  style={{ width: `${bdPct}%` }}
-                />
               </div>
             </Link>
 
             <Link
               href="/spending?tab=it"
-              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-[#F6F9FF] dark:bg-slate-900/70 p-4 hover:border-blue-400 transition-colors"
+              className="royal-elevated rounded-xl p-4 hover:border-[var(--accent-primary)] transition-colors"
             >
-              <div className="flex items-center justify-between text-xs font-bold uppercase text-blue-700 dark:text-blue-300">
-                <span>IT Spending</span>
-                <span>{itPct}%</span>
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-royal">
+                {t("itSpending")}
               </div>
-              <div className="mt-2 text-lg font-extrabold tabular-nums text-slate-900 dark:text-white">
+              <div className="mt-1.5 text-lg font-bold tabular-nums">
                 {formatMoney(m.itSpending, currency)}
               </div>
-              <div className="mt-2 h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-blue-600 rounded-full"
-                  style={{ width: `${itPct}%` }}
-                />
-              </div>
             </Link>
-
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-[#F6F9FF] dark:bg-slate-900/70 p-4">
-              <div className="flex items-center justify-between text-xs font-bold uppercase text-emerald-700 dark:text-emerald-300">
-                <span>Profit Margin</span>
-                <Wallet className="h-3.5 w-3.5" />
-              </div>
-              <div className="mt-2 text-lg font-extrabold tabular-nums text-slate-900 dark:text-white">
-                {m.totalEarning > 0 ? `${m.profitMargin}%` : "0%"}
-              </div>
-              <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                {m.totalCustomers} paid client deliveries
-              </p>
-            </div>
           </div>
         </div>
 
-        {/* Today's Attendance Summary */}
-        <div className="lg:col-span-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300">
-                  <CalendarCheck2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                    Today&apos;s Attendance
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Date: {m.todayDate}
-                  </p>
-                </div>
-              </div>
-
-              <Link
-                href="/attendance"
-                className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-500/15 px-3 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors"
-              >
-                <span>Open Sheet</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+        <Link
+          href="/attendance"
+          className="lg:col-span-5 royal-card royal-card-hover rounded-2xl p-6 flex flex-col justify-between gap-5"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <CalendarCheck2 className="h-5 w-5 gold-accent" />
+              <span className="text-sm font-bold uppercase tracking-wider">
+                {t("attendance")}
+              </span>
             </div>
-
-            <div className="mt-5 grid grid-cols-4 gap-2.5 text-center">
-              <div className="rounded-xl bg-emerald-50/90 dark:bg-emerald-500/10 border border-emerald-200/80 dark:border-emerald-500/25 p-3">
-                <div className="text-xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-300">
-                  {m.presentToday}
-                </div>
-                <div className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 mt-0.5">
-                  Present
-                </div>
-              </div>
-              <div className="rounded-xl bg-amber-50/90 dark:bg-amber-500/10 border border-amber-200/80 dark:border-amber-500/25 p-3">
-                <div className="text-xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">
-                  {m.lateToday}
-                </div>
-                <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 mt-0.5">
-                  Late
-                </div>
-              </div>
-              <div className="rounded-xl bg-indigo-50/90 dark:bg-indigo-500/10 border border-indigo-200/80 dark:border-indigo-500/25 p-3">
-                <div className="text-xl font-extrabold tabular-nums text-indigo-700 dark:text-indigo-300">
-                  {m.onLeaveToday}
-                </div>
-                <div className="text-[11px] font-semibold text-indigo-800 dark:text-indigo-300 mt-0.5">
-                  Leave
-                </div>
-              </div>
-              <div className="rounded-xl bg-rose-50/90 dark:bg-rose-500/10 border border-rose-200/80 dark:border-rose-500/25 p-3">
-                <div className="text-xl font-extrabold tabular-nums text-rose-700 dark:text-rose-300">
-                  {m.absentToday}
-                </div>
-                <div className="text-[11px] font-semibold text-rose-800 dark:text-rose-300 mt-0.5">
-                  Absent
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span className="inline-flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              Staff Availability:{" "}
-              <strong className="text-slate-800 dark:text-slate-200">
-                {m.activeStaff} Active · {m.freeStaff} Free · {m.busyStaff} Busy
-              </strong>
+            <span className="text-xs text-muted-royal tabular-nums">
+              {m.todayDate}
             </span>
           </div>
-        </div>
+
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="royal-elevated rounded-xl p-3">
+              <div className="text-xl font-bold tabular-nums text-emerald-400">
+                {m.presentToday}
+              </div>
+              <div className="text-[11px] text-muted-royal mt-0.5">
+                {t("present")}
+              </div>
+            </div>
+            <div className="royal-elevated rounded-xl p-3">
+              <div className="text-xl font-bold tabular-nums gold-accent">
+                {m.onLeaveToday}
+              </div>
+              <div className="text-[11px] text-muted-royal mt-0.5">Leave</div>
+            </div>
+            <div className="royal-elevated rounded-xl p-3">
+              <div className="text-xl font-bold tabular-nums text-rose-400">
+                {m.absentToday}
+              </div>
+              <div className="text-[11px] text-muted-royal mt-0.5">Absent</div>
+            </div>
+          </div>
+        </Link>
       </div>
 
-      {/* Live Top-Up Feeds Preview */}
+      {/* Latest Entries Stream */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Latest Customer Earnings */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Recent Customer Earnings
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Latest paid customers & IT team work links
-              </p>
-            </div>
+            <h2 className="text-base font-bold">{t("recentEarnings")}</h2>
             <Link
               href="/earning"
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+              className="text-xs font-semibold gold-accent hover:underline"
             >
-              View All Earnings <ArrowRight className="h-3.5 w-3.5" />
+              {t("viewAll")}
             </Link>
           </div>
 
           {!data?.recentEarnings?.length ? (
-            <div className="rounded-2xl border border-dashed border-blue-200 dark:border-slate-800 bg-white/80 dark:bg-[#111C35]/60 p-8 text-center">
-              <UserCheck className="mx-auto h-9 w-9 text-blue-500/80" />
-              <h3 className="mt-3 text-sm font-bold text-slate-900 dark:text-white">
-                No customer earnings recorded yet
-              </h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                BD CEO, IT CEO, or ERP Owner can add paid customer top-ups and
-                delivered IT work links anytime.
-              </p>
-              <Link
-                href="/earning"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-bold text-white"
-              >
-                Go to Earning Section <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+            <div className="royal-card rounded-2xl p-8 text-center text-xs text-muted-royal">
+              {t("noRecords")}
             </div>
           ) : (
             <div className="space-y-3.5">
@@ -446,41 +271,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Latest Department Spendings */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Recent Department Spending
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Latest BD & IT top-up expense messages
-              </p>
-            </div>
+            <h2 className="text-base font-bold">{t("recentSpending")}</h2>
             <Link
               href="/spending"
-              className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+              className="text-xs font-semibold gold-accent hover:underline"
             >
-              View BD / IT / Total <ArrowRight className="h-3.5 w-3.5" />
+              {t("viewAll")}
             </Link>
           </div>
 
           {!data?.recentSpending?.length ? (
-            <div className="rounded-2xl border border-dashed border-blue-200 dark:border-slate-800 bg-white/80 dark:bg-[#111C35]/60 p-8 text-center">
-              <ArrowDownRight className="mx-auto h-9 w-9 text-blue-500/80" />
-              <h3 className="mt-3 text-sm font-bold text-slate-900 dark:text-white">
-                No department spending recorded yet
-              </h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                BD CEO records BD expenses, IT CEO records IT expenses, and ERP
-                Owner manages everything.
-              </p>
-              <Link
-                href="/spending"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-bold text-white"
-              >
-                Open Spending Sections <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+            <div className="royal-card rounded-2xl p-8 text-center text-xs text-muted-royal">
+              {t("noRecords")}
             </div>
           ) : (
             <div className="space-y-3.5">

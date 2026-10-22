@@ -3,11 +3,36 @@ import bcrypt from "bcryptjs";
 import { DEFAULT_SETTINGS, INITIAL_PORTAL_ACCOUNTS } from "./constants";
 import { asJson, one, rawQuery } from "./db";
 import { runMigrations } from "./schema";
-import type { AppSettings, CurrencyCode } from "./types";
+import { ROYAL_THEMES } from "./themes";
+import type {
+  AppSettings,
+  CurrencyCode,
+  CustomThemePalette,
+  ThemePresetId,
+  UploadedFont,
+} from "./types";
 
 const globalBoot = globalThis as unknown as {
   __devfundsBootPromise?: Promise<void>;
 };
+
+const VALID_THEMES: ThemePresetId[] = [
+  "imperial_sapphire",
+  "ivory_sovereign",
+  "obsidian_gold",
+  "emerald_dynasty",
+  "burgundy_crown",
+  "pearl_platinum",
+  "amethyst_regency",
+  "custom",
+];
+
+function sanitizeHex(val: unknown, fallback: string): string {
+  if (typeof val === "string" && /^#[0-9a-fA-F]{3,8}$/.test(val.trim())) {
+    return val.trim();
+  }
+  return fallback;
+}
 
 export function normalizeSettings(raw: unknown): AppSettings {
   const obj = asJson<Partial<AppSettings>>(raw, {});
@@ -16,29 +41,69 @@ export function normalizeSettings(raw: unknown): AppSettings {
     ? (obj.currency as CurrencyCode)
     : DEFAULT_SETTINGS.currency;
 
+  const themeId = VALID_THEMES.includes(obj.themeId as ThemePresetId)
+    ? (obj.themeId as ThemePresetId)
+    : DEFAULT_SETTINGS.themeId;
+
+  const rawPalette = (obj.customTheme || {}) as Partial<CustomThemePalette>;
+  const defPalette = ROYAL_THEMES[0].palette;
+  const customTheme: CustomThemePalette = {
+    bgCanvas: sanitizeHex(rawPalette.bgCanvas, defPalette.bgCanvas),
+    bgSurface: sanitizeHex(rawPalette.bgSurface, defPalette.bgSurface),
+    bgElevated: sanitizeHex(rawPalette.bgElevated, defPalette.bgElevated),
+    borderSubtle: sanitizeHex(rawPalette.borderSubtle, defPalette.borderSubtle),
+    accentPrimary: sanitizeHex(
+      rawPalette.accentPrimary,
+      defPalette.accentPrimary
+    ),
+    accentSecondary: sanitizeHex(
+      rawPalette.accentSecondary,
+      defPalette.accentSecondary
+    ),
+    textPrimary: sanitizeHex(rawPalette.textPrimary, defPalette.textPrimary),
+    textMuted: sanitizeHex(rawPalette.textMuted, defPalette.textMuted),
+  };
+
+  const customFonts: UploadedFont[] = Array.isArray(obj.customFonts)
+    ? obj.customFonts
+        .filter(
+          (f) =>
+            f &&
+            typeof f.id === "string" &&
+            typeof f.name === "string" &&
+            typeof f.dataUrl === "string"
+        )
+        .slice(0, 12)
+    : [];
+
   return {
     companyName:
       typeof obj.companyName === "string" && obj.companyName.trim()
-        ? obj.companyName.trim()
+        ? obj.companyName.trim().slice(0, 60)
         : DEFAULT_SETTINGS.companyName,
-    tagline:
-      typeof obj.tagline === "string" && obj.tagline.trim()
-        ? obj.tagline.trim()
-        : DEFAULT_SETTINGS.tagline,
+    logoUrl: typeof obj.logoUrl === "string" ? obj.logoUrl.trim() : "",
     currency,
     timezone:
       typeof obj.timezone === "string" && obj.timezone.trim()
         ? obj.timezone.trim()
         : DEFAULT_SETTINGS.timezone,
-    showSetupHint:
-      typeof obj.showSetupHint === "boolean"
-        ? obj.showSetupHint
-        : DEFAULT_SETTINGS.showSetupHint,
+    language: obj.language === "ur" ? "ur" : "en",
+    themeId,
+    customTheme,
+    textColorOverride:
+      typeof obj.textColorOverride === "string" &&
+      /^#[0-9a-fA-F]{3,8}$/.test(obj.textColorOverride.trim())
+        ? obj.textColorOverride.trim()
+        : "",
+    fontId:
+      typeof obj.fontId === "string" && obj.fontId.trim()
+        ? obj.fontId.trim()
+        : DEFAULT_SETTINGS.fontId,
+    customFonts,
   };
 }
 
 async function seedCoreStructure(): Promise<void> {
-  // 1. Default workspace settings (PKR currency by default, clean zero state)
   await rawQuery(
     `INSERT INTO df_settings (key, value)
      VALUES ('app', $1::jsonb)
@@ -46,34 +111,32 @@ async function seedCoreStructure(): Promise<void> {
     [JSON.stringify(DEFAULT_SETTINGS)]
   );
 
-  // 2. Default two sections: BD & IT (can add more, divide, or remove later)
-  const coreSections = [
-    {
-      id: "sec_bd",
-      slug: "bd",
-      name: "BD",
-      description: "Business Development, Client Acquisition & Sales Closing",
-      color: "sky",
-      isSystem: false,
-      sortOrder: 1,
-    },
-    {
-      id: "sec_it",
-      slug: "it",
-      name: "IT",
-      description: "Software Engineering, Design, Cloud & Delivery Team",
-      color: "blue",
-      isSystem: false,
-      sortOrder: 2,
-    },
-  ];
-
-  // Seed default sections only on initial setup so ERP Owner can rename/remove if desired
   const initFlag = await one<{ key: string }>(
     `SELECT key FROM df_settings WHERE key = 'initialized_v1' LIMIT 1`
   );
 
   if (!initFlag) {
+    const coreSections = [
+      {
+        id: "sec_bd",
+        slug: "bd",
+        name: "BD",
+        description: "Business Development",
+        color: "sky",
+        isSystem: false,
+        sortOrder: 1,
+      },
+      {
+        id: "sec_it",
+        slug: "it",
+        name: "IT",
+        description: "Information Technology",
+        color: "blue",
+        isSystem: false,
+        sortOrder: 2,
+      },
+    ];
+
     for (const sec of coreSections) {
       await rawQuery(
         `INSERT INTO df_sections (id, slug, name, description, color, is_system, sort_order)
@@ -91,7 +154,6 @@ async function seedCoreStructure(): Promise<void> {
       );
     }
 
-    // 3. Seed ONLY the 3 leadership portal accounts (0 customers, 0 earning, 0 spending, 0 staff)
     for (const acct of INITIAL_PORTAL_ACCOUNTS) {
       const hash = bcrypt.hashSync(acct.defaultPassword, 10);
       await rawQuery(

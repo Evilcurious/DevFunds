@@ -39,7 +39,7 @@ const SCHEMA_STATEMENTS = [
     section_slug TEXT NOT NULL,
     title TEXT NOT NULL,
     details TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL DEFAULT 'Other Operational Expense',
+    category TEXT NOT NULL DEFAULT 'Other Expense',
     payment_method TEXT NOT NULL DEFAULT 'Bank Transfer',
     reference_note TEXT NOT NULL DEFAULT '',
     amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
@@ -79,6 +79,47 @@ const SCHEMA_STATEMENTS = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, work_date)
   )`,
+  `CREATE TABLE IF NOT EXISTS df_leave_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
+    user_name TEXT NOT NULL,
+    section_slug TEXT,
+    leave_type TEXT NOT NULL DEFAULT 'Casual Leave',
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_by_name TEXT,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_tasks (
+    id TEXT PRIMARY KEY,
+    section_slug TEXT NOT NULL CHECK (section_slug IN ('bd', 'it')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'high', 'urgent')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed')),
+    due_date TEXT,
+    reference_link TEXT NOT NULL DEFAULT '',
+    completion_note TEXT NOT NULL DEFAULT '',
+    assigned_to_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
+    assigned_to_name TEXT NOT NULL,
+    assigned_by_id TEXT,
+    assigned_by_name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS df_notifications (
+    id TEXT PRIMARY KEY,
+    recipient_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '/portals',
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
   `CREATE TABLE IF NOT EXISTS df_audit_logs (
     id TEXT PRIMARY KEY,
     actor_id TEXT,
@@ -94,6 +135,10 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_df_spending_section ON df_spending(section_slug, spent_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_df_earnings_date ON df_earnings(earned_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_df_attendance_date ON df_attendance(work_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_leaves_status ON df_leave_requests(status, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_tasks_section ON df_tasks(section_slug, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_tasks_assignee ON df_tasks(assigned_to_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_notifications_recipient ON df_notifications(recipient_id, is_read, created_at DESC)`,
 ];
 
 export async function runMigrations(): Promise<void> {

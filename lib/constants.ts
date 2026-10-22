@@ -1,3 +1,4 @@
+import { ROYAL_THEMES } from "./themes";
 import type {
   AppSettings,
   AttendanceStatus,
@@ -8,21 +9,26 @@ import type {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "DevFunds",
-  tagline: "Operations, Revenue, Spending & Attendance ERP",
+  logoUrl: "",
   currency: "PKR",
   timezone: "Asia/Karachi",
-  showSetupHint: true,
+  language: "en",
+  themeId: "imperial_sapphire",
+  customTheme: ROYAL_THEMES[0].palette,
+  textColorOverride: "",
+  fontId: "plus_jakarta",
+  customFonts: [],
 };
 
 export const CURRENCIES: Record<
   CurrencyCode,
   { code: CurrencyCode; symbol: string; label: string }
 > = {
-  PKR: { code: "PKR", symbol: "Rs.", label: "Pakistani Rupee (Rs.)" },
-  USD: { code: "USD", symbol: "$", label: "US Dollar ($)" },
-  AED: { code: "AED", symbol: "AED", label: "UAE Dirham (AED)" },
-  GBP: { code: "GBP", symbol: "£", label: "British Pound (£)" },
-  EUR: { code: "EUR", symbol: "€", label: "Euro (€)" },
+  PKR: { code: "PKR", symbol: "Rs.", label: "PKR (Rs.)" },
+  USD: { code: "USD", symbol: "$", label: "USD ($)" },
+  AED: { code: "AED", symbol: "AED", label: "AED" },
+  GBP: { code: "GBP", symbol: "£", label: "GBP (£)" },
+  EUR: { code: "EUR", symbol: "€", label: "EUR (€)" },
 };
 
 export const PORTAL_META: Record<
@@ -30,68 +36,38 @@ export const PORTAL_META: Record<
   {
     role: PortalRole;
     title: string;
+    urduTitle: string;
     shortTitle: string;
-    subtitle: string;
-    badgeBg: string;
     defaultSection: string | null;
-    capabilities: string[];
   }
 > = {
   erp_owner: {
     role: "erp_owner",
-    title: "ERP Owner Portal",
+    title: "ERP Owner",
+    urduTitle: "ای آر پی اونر",
     shortTitle: "ERP Owner",
-    subtitle: "Full executive access across finance, sections, accounts, staff & attendance",
-    badgeBg: "bg-blue-700 text-white",
     defaultSection: null,
-    capabilities: [
-      "Add, edit & delete BD, IT, or any section spending",
-      "Add, edit & delete customer earnings & work links",
-      "Create, rename, divide & remove staff sections",
-      "Manage CEOs, staff accounts, passwords, attendance & currency settings",
-    ],
   },
   it_ceo: {
     role: "it_ceo",
-    title: "IT CEO Portal",
+    title: "IT CEO",
+    urduTitle: "آئی ٹی سی ای او",
     shortTitle: "IT CEO",
-    subtitle: "Manage IT department spending, delivered customer work, IT staff & attendance",
-    badgeBg: "bg-blue-600 text-white",
     defaultSection: "it",
-    capabilities: [
-      "Add & edit IT department spending records",
-      "Add & edit successful customers & attach IT delivered work links",
-      "Create IT staff accounts & set status (Active, Free, Busy, Not Available)",
-      "Track & mark IT team daily attendance",
-    ],
   },
   bd_ceo: {
     role: "bd_ceo",
-    title: "BD CEO Portal",
+    title: "BD CEO",
+    urduTitle: "بی ڈی سی ای او",
     shortTitle: "BD CEO",
-    subtitle: "Manage BD department spending, closed customer deals, BD staff & attendance",
-    badgeBg: "bg-sky-600 text-white",
     defaultSection: "bd",
-    capabilities: [
-      "Add & edit BD department spending records",
-      "Add & edit successful customers, payments & client details",
-      "Create BD staff accounts & set status (Active, Free, Busy, Not Available)",
-      "Track & mark BD team daily attendance",
-    ],
   },
   staff: {
     role: "staff",
-    title: "Staff Portal",
-    shortTitle: "Staff Member",
-    subtitle: "View workspace metrics & update your live availability, skills, bio & attendance",
-    badgeBg: "bg-slate-700 text-white",
+    title: "Staff",
+    urduTitle: "اسٹاف",
+    shortTitle: "Staff",
     defaultSection: null,
-    capabilities: [
-      "Update live status: Active, Free, Busy, or Not Available",
-      "Edit personal skills tags, bio & free-time availability window",
-      "Check in & check out daily attendance",
-      "View-only access to company overview & team directory",
-    ],
   },
 };
 
@@ -100,37 +76,33 @@ export const STAFF_STATUS_META: Record<
   {
     value: StaffStatus;
     label: string;
-    dotClass: string;
-    pillClass: string;
+    urduLabel: string;
+    dotColor: string;
   }
 > = {
   active: {
     value: "active",
     label: "Active",
-    dotClass: "bg-emerald-500",
-    pillClass:
-      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
+    urduLabel: "فعال",
+    dotColor: "#10B981",
   },
   free: {
     value: "free",
     label: "Free",
-    dotClass: "bg-blue-500",
-    pillClass:
-      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30",
+    urduLabel: "فارغ",
+    dotColor: "#38BDF8",
   },
   busy: {
     value: "busy",
     label: "Busy",
-    dotClass: "bg-amber-500",
-    pillClass:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30",
+    urduLabel: "مصروف",
+    dotColor: "#F59E0B",
   },
   not_available: {
     value: "not_available",
     label: "Not Available",
-    dotClass: "bg-rose-500",
-    pillClass:
-      "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+    urduLabel: "غیر دستیاب",
+    dotColor: "#EF4444",
   },
 };
 
@@ -138,40 +110,24 @@ export const ATTENDANCE_STATUS_META: Record<
   AttendanceStatus | "unmarked",
   {
     label: string;
-    pillClass: string;
+    urduLabel: string;
+    color: string;
   }
 > = {
-  present: {
-    label: "Present",
-    pillClass:
-      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
-  },
-  late: {
-    label: "Late",
-    pillClass:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30",
-  },
-  half_day: {
-    label: "Half Day",
-    pillClass:
-      "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/30",
-  },
-  on_leave: {
-    label: "On Leave",
-    pillClass:
-      "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-500/30",
-  },
-  absent: {
-    label: "Absent",
-    pillClass:
-      "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30",
-  },
-  unmarked: {
-    label: "Not Marked",
-    pillClass:
-      "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-700",
-  },
+  present: { label: "Present", urduLabel: "حاضر", color: "#10B981" },
+  late: { label: "Late", urduLabel: "تاخیر", color: "#F59E0B" },
+  half_day: { label: "Half Day", urduLabel: "نصف دن", color: "#38BDF8" },
+  on_leave: { label: "On Leave", urduLabel: "رخصت", color: "#A855F7" },
+  absent: { label: "Absent", urduLabel: "غیر حاضر", color: "#EF4444" },
+  unmarked: { label: "Not Marked", urduLabel: "غیر نشان زد", color: "#64748B" },
 };
+
+export const LEAVE_TYPES = [
+  "Casual Leave",
+  "Sick Leave",
+  "Urgent / Personal",
+  "Annual Leave",
+] as const;
 
 export const SPENDING_CATEGORIES = [
   "Ads & Lead Generation",
@@ -181,8 +137,7 @@ export const SPENDING_CATEGORIES = [
   "Freelance / Contractors",
   "Office, Utilities & Internet",
   "Hardware & Equipment",
-  "Travel & Client Meetings",
-  "Other Operational Expense",
+  "Other Expense",
 ] as const;
 
 export const PAYMENT_METHODS = [
@@ -199,23 +154,23 @@ export const INITIAL_PORTAL_ACCOUNTS = [
     email: "owner@devzard.app",
     defaultPassword: "Owner@123",
     portalRole: "erp_owner" as PortalRole,
-    jobTitle: "Founder & ERP Owner",
+    jobTitle: "ERP Owner",
     sectionSlug: null,
   },
   {
-    name: "IT Department CEO",
+    name: "IT CEO",
     email: "it.ceo@devzard.app",
     defaultPassword: "ItCeo@123",
     portalRole: "it_ceo" as PortalRole,
-    jobTitle: "Chief Executive — IT",
+    jobTitle: "IT CEO",
     sectionSlug: "it",
   },
   {
-    name: "BD Department CEO",
+    name: "BD CEO",
     email: "bd.ceo@devzard.app",
     defaultPassword: "BdCeo@123",
     portalRole: "bd_ceo" as PortalRole,
-    jobTitle: "Chief Executive — Business Development",
+    jobTitle: "BD CEO",
     sectionSlug: "bd",
   },
 ] as const;

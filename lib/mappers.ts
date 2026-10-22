@@ -4,10 +4,16 @@ import type {
   AttendanceStatus,
   AuditLogRecord,
   EarningRecord,
+  LeaveRequestRecord,
+  LeaveStatus,
+  NotificationRecord,
   PortalRole,
   SectionRecord,
   SpendingRecord,
   StaffStatus,
+  TaskPriority,
+  TaskRecord,
+  TaskStatus,
   UserRecord,
 } from "./types";
 
@@ -69,7 +75,7 @@ export function mapSpendingRow(row: Record<string, unknown>): SpendingRecord {
       : String(row.section_slug).toUpperCase(),
     title: String(row.title),
     details: String(row.details ?? ""),
-    category: String(row.category ?? "Other Operational Expense"),
+    category: String(row.category ?? "Other Expense"),
     paymentMethod: String(row.payment_method ?? "Bank Transfer"),
     referenceNote: String(row.reference_note ?? ""),
     amount: toNum(row.amount, 0),
@@ -129,6 +135,59 @@ export function mapAttendanceRow(
     updatedAt: row.attendance_updated_at
       ? toIso(row.attendance_updated_at)
       : null,
+  };
+}
+
+export function mapLeaveRow(row: Record<string, unknown>): LeaveRequestRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    userName: String(row.user_name),
+    userEmail: row.user_email ? String(row.user_email) : undefined,
+    sectionSlug: row.section_slug ? String(row.section_slug) : null,
+    leaveType: String(row.leave_type ?? "Casual Leave"),
+    startDate: String(row.start_date),
+    endDate: String(row.end_date),
+    reason: String(row.reason ?? ""),
+    status: (row.status as LeaveStatus) || "pending",
+    reviewedByName: row.reviewed_by_name ? String(row.reviewed_by_name) : null,
+    reviewedAt: row.reviewed_at ? toIso(row.reviewed_at) : null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+export function mapTaskRow(row: Record<string, unknown>): TaskRecord {
+  return {
+    id: String(row.id),
+    sectionSlug: String(row.section_slug) === "bd" ? "bd" : "it",
+    title: String(row.title),
+    description: String(row.description ?? ""),
+    priority: (row.priority as TaskPriority) || "normal",
+    status: (row.status as TaskStatus) || "pending",
+    dueDate: row.due_date ? String(row.due_date) : null,
+    referenceLink: String(row.reference_link ?? ""),
+    completionNote: String(row.completion_note ?? ""),
+    assignedToId: String(row.assigned_to_id),
+    assignedToName: String(row.assigned_to_name),
+    assignedById: row.assigned_by_id ? String(row.assigned_by_id) : null,
+    assignedByName: String(row.assigned_by_name ?? "Admin"),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+export function mapNotificationRow(
+  row: Record<string, unknown>
+): NotificationRecord {
+  return {
+    id: String(row.id),
+    recipientId: String(row.recipient_id),
+    kind: String(row.kind),
+    title: String(row.title),
+    body: String(row.body ?? ""),
+    link: String(row.link ?? "/portals"),
+    isRead: Boolean(row.is_read),
+    createdAt: toIso(row.created_at),
   };
 }
 

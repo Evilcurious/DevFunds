@@ -2,49 +2,43 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
-  Database,
+  Check,
   FolderPlus,
   KeyRound,
   Pencil,
   Plus,
   Save,
-  Settings,
   Split,
   Trash2,
   UserPlus,
-  Users,
+  X,
 } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { EarningModal } from "@/components/modals/earning-modal";
 import { SectionModal } from "@/components/modals/section-modal";
 import { SpendingModal } from "@/components/modals/spending-modal";
 import { StaffModal } from "@/components/modals/staff-modal";
+import { TaskModal } from "@/components/modals/task-modal";
+import { OwnerStudioPanel } from "@/components/portals/owner-studio-panel";
 import {
   EarningTopUpCard,
   SpendingTopUpCard,
 } from "@/components/topup-cards";
-import {
-  CURRENCIES,
-  PORTAL_META,
-  STAFF_STATUS_META,
-} from "@/lib/constants";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { PORTAL_META, STAFF_STATUS_META } from "@/lib/constants";
 import type {
-  AuditLogRecord,
-  CurrencyCode,
   EarningRecord,
+  LeaveRequestRecord,
   SectionRecord,
   SpendingRecord,
   StaffStatus,
+  TaskRecord,
   UserRecord,
 } from "@/lib/types";
 
-type TabId = "spending" | "customers" | "staff" | "settings";
+type TabId = "inbox" | "spending" | "customers" | "staff" | "studio";
 
 export function AdminPortalView() {
-  const { user, settings, setSettings, dbMode, toast } = useApp();
+  const { user, settings, t, toast } = useApp();
 
   const isOwner = user?.portalRole === "erp_owner";
   const deptSlug =
@@ -54,15 +48,16 @@ export function AdminPortalView() {
       ? "bd"
       : null;
 
-  const [tab, setTab] = useState<TabId>("spending");
+  const [tab, setTab] = useState<TabId>("inbox");
   const [spending, setSpending] = useState<SpendingRecord[]>([]);
   const [earnings, setEarnings] = useState<EarningRecord[]>([]);
   const [sections, setSections] = useState<SectionRecord[]>([]);
   const [accounts, setAccounts] = useState<UserRecord[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
+  const [allStaff, setAllStaff] = useState<UserRecord[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modals
   const [spendModal, setSpendModal] = useState(false);
   const [editingSpend, setEditingSpend] = useState<SpendingRecord | null>(null);
 
@@ -75,32 +70,24 @@ export function AdminPortalView() {
   const [secModal, setSecModal] = useState(false);
   const [secMode, setSecMode] = useState<"create" | "divide">("create");
 
-  // Settings / Password form state
-  const [companyName, setCompanyName] = useState(settings.companyName);
-  const [tagline, setTagline] = useState(settings.tagline);
-  const [currency, setCurrency] = useState<CurrencyCode>(settings.currency);
-  const [showSetupHint, setShowSetupHint] = useState(settings.showSetupHint);
-  const [myNewPassword, setMyNewPassword] = useState("");
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [taskModal, setTaskModal] = useState(false);
 
-  useEffect(() => {
-    setCompanyName(settings.companyName);
-    setTagline(settings.tagline);
-    setCurrency(settings.currency);
-    setShowSetupHint(settings.showSetupHint);
-  }, [settings]);
+  const [myNewPassword, setMyNewPassword] = useState("");
+  const [savingPw, setSavingPw] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
     try {
       const spendQuery = deptSlug ? `?section=${deptSlug}` : "";
-      const [spRes, eaRes, stRes, setRes] = await Promise.all([
+      const taskQuery = deptSlug ? `?section=${deptSlug}` : "";
+      const [spRes, eaRes, stRes, lvRes, tkRes] = await Promise.all([
         fetch(`/api/spending${spendQuery}`, { cache: "no-store" }),
         fetch("/api/earnings", { cache: "no-store" }),
         fetch(`/api/staff${isOwner ? "?includeLeaders=true" : ""}`, {
           cache: "no-store",
         }),
-        fetch("/api/settings", { cache: "no-store" }),
+        fetch("/api/leaves", { cache: "no-store" }),
+        fetch(`/api/tasks${taskQuery}`, { cache: "no-store" }),
       ]);
 
       if (spRes.ok) {
@@ -115,6 +102,7 @@ export function AdminPortalView() {
         const stJson = await stRes.json();
         setSections(stJson.sections ?? []);
         const rawStaff: UserRecord[] = stJson.staff ?? [];
+        setAllStaff(rawStaff.filter((u) => u.portalRole === "staff"));
         setAccounts(
           deptSlug
             ? rawStaff.filter(
@@ -123,9 +111,13 @@ export function AdminPortalView() {
             : rawStaff
         );
       }
-      if (setRes.ok) {
-        const setJson = await setRes.json();
-        setAuditLogs(setJson.auditLogs ?? []);
+      if (lvRes.ok) {
+        const lvJson = await lvRes.json();
+        setLeaves(lvJson.leaves ?? []);
+      }
+      if (tkRes.ok) {
+        const tkJson = await tkRes.json();
+        setTasks(tkJson.tasks ?? []);
       }
     } finally {
       setLoading(false);
@@ -138,13 +130,24 @@ export function AdminPortalView() {
 
   if (!user) return null;
 
-  const portalMeta = PORTAL_META[user.portalRole];
-  const staffOnlyList = accounts.filter((a) => a.portalRole === "staff");
-  const totalDeptSpending = spending.reduce((sum, r) => sum + r.amount, 0);
-  const totalCustomerEarning = earnings.reduce(
-    (sum, r) => sum + r.amountPaid,
-    0
-  );
+  const pendingLeavesCount = leaves.filter(
+    (l) => l.status === "pending"
+  ).length;
+
+  const handleLeaveDecision = async (
+    lv: LeaveRequestRecord,
+    decision: "approved" | "rejected"
+  ) => {
+    const res = await fetch(`/api/leaves/${lv.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: decision }),
+    });
+    if (res.ok) {
+      toast(decision === "approved" ? t("approved") : t("rejected"));
+      loadWorkspace();
+    }
+  };
 
   const handleQuickStatus = async (
     target: UserRecord,
@@ -156,147 +159,350 @@ export function AdminPortalView() {
       body: JSON.stringify({ staffStatus: nextStatus }),
     });
     if (res.ok) {
-      toast(
-        `${target.name} status set to ${STAFF_STATUS_META[nextStatus].label}`
-      );
+      toast(STAFF_STATUS_META[nextStatus].label);
       loadWorkspace();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error || "Could not update status", "error");
     }
   };
 
   const handleDeleteSpending = async (rec: SpendingRecord) => {
-    if (!window.confirm(`Delete spending "${rec.title}"?`)) return;
+    if (!window.confirm(`Delete "${rec.title}"?`)) return;
     const res = await fetch(`/api/spending/${rec.id}`, { method: "DELETE" });
     if (res.ok) {
-      toast("Spending deleted.");
+      toast("Deleted");
       loadWorkspace();
     }
   };
 
   const handleDeleteEarning = async (rec: EarningRecord) => {
-    if (!window.confirm(`Delete customer earning "${rec.customerName}"?`))
-      return;
+    if (!window.confirm(`Delete "${rec.customerName}"?`)) return;
     const res = await fetch(`/api/earnings/${rec.id}`, { method: "DELETE" });
     if (res.ok) {
-      toast("Customer earning deleted.");
+      toast("Deleted");
       loadWorkspace();
     }
   };
 
   const handleDeleteAccount = async (target: UserRecord) => {
-    if (
-      !window.confirm(
-        `Permanently remove "${target.name}" (${target.email})?`
-      )
-    ) {
-      return;
-    }
+    if (!window.confirm(`Remove "${target.name}"?`)) return;
     const res = await fetch(`/api/staff/${target.id}`, { method: "DELETE" });
     if (res.ok) {
-      toast(`Removed ${target.name}`);
+      toast("Removed");
       loadWorkspace();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      toast(err.error || "Unable to remove account", "error");
     }
   };
 
-  const handleSaveSettings = async (e: React.FormEvent) => {
+  const handleCeoPasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingSettings(true);
+    if (!myNewPassword.trim()) return;
+    setSavingPw(true);
     try {
-      if (isOwner) {
-        const res = await fetch("/api/settings", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            companyName,
-            tagline,
-            currency,
-            showSetupHint,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.settings) {
-          setSettings(data.settings);
-          toast("Workspace settings saved!");
-        }
-      }
-
-      if (myNewPassword.trim()) {
-        const pwRes = await fetch("/api/auth/me", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newPassword: myNewPassword.trim() }),
-        });
-        if (pwRes.ok) {
-          setMyNewPassword("");
-          toast("Your password has been updated!");
-        } else {
-          const pwErr = await pwRes.json().catch(() => ({}));
-          toast(pwErr.error || "Password update failed", "error");
-        }
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword: myNewPassword.trim() }),
+      });
+      if (res.ok) {
+        setMyNewPassword("");
+        toast("Password updated!");
       }
     } finally {
-      setSavingSettings(false);
+      setSavingPw(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Executive Portal Banner */}
-      <div className="rounded-3xl bg-gradient-to-br from-blue-700 via-blue-600 to-sky-600 p-6 sm:p-8 text-white shadow-lg shadow-blue-700/15">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-bold uppercase tracking-wider">
-              <span>{portalMeta.title}</span>
-              <span>·</span>
-              <span className="inline-flex items-center gap-1">
-                <Database className="h-3 w-3" />
-                {dbMode === "neon"
-                  ? "Neon PostgreSQL Connected"
-                  : dbMode === "postgres"
-                  ? "PostgreSQL Connected"
-                  : "Local Database Active"}
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold">
-              Welcome, {user.name}
-            </h1>
-            <p className="text-sm text-blue-100 max-w-2xl">
-              {portalMeta.subtitle}
-            </p>
+      {/* Quick Action Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("inbox")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              tab === "inbox" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("inbox")}
+            {pendingLeavesCount > 0 ? ` (${pendingLeavesCount})` : ""}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("spending")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              tab === "spending" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("spending")} ({spending.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("customers")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              tab === "customers" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("earning")} ({earnings.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("staff")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              tab === "staff" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("staff")} ({accounts.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("studio")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              tab === "studio" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {isOwner ? t("brandStudio") : t("settings")}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTaskModal(true)}
+            className="royal-btn-outline rounded-xl px-3.5 py-2 text-xs inline-flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5 gold-accent" />
+            <span>{t("assignWork")}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEditingSpend(null);
+              setSpendModal(true);
+            }}
+            className="royal-btn-outline rounded-xl px-3.5 py-2 text-xs inline-flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5 gold-accent" />
+            <span>{t("addSpending")}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEditingEarn(null);
+              setEarnModal(true);
+            }}
+            className="royal-btn rounded-xl px-3.5 py-2 text-xs inline-flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>{t("addEarning")}</span>
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
+          ...
+        </div>
+      ) : tab === "inbox" ? (
+        /* INBOX: Leave Approvals + Assigned Todo Work */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="royal-card rounded-2xl p-6 space-y-4">
+            <h2 className="text-base font-bold border-b border-[var(--border-subtle)] pb-3">
+              {t("leaveRequests")}
+            </h2>
+
+            {leaves.length === 0 ? (
+              <p className="py-8 text-center text-xs text-muted-royal">
+                {t("noRecords")}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {leaves.map((lv) => (
+                  <div
+                    key={lv.id}
+                    className="royal-elevated rounded-xl p-4 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">{lv.userName}</span>
+                        {lv.sectionSlug && (
+                          <span className="ms-2 text-[10px] font-bold uppercase gold-accent">
+                            {lv.sectionSlug}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={`text-xs font-bold uppercase ${
+                          lv.status === "approved"
+                            ? "text-emerald-400"
+                            : lv.status === "rejected"
+                            ? "text-rose-400"
+                            : "text-amber-300"
+                        }`}
+                      >
+                        {lv.status}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-muted-royal tabular-nums">
+                      {lv.leaveType} · {lv.startDate} → {lv.endDate}
+                    </div>
+                    <p className="text-xs">{lv.reason}</p>
+
+                    {lv.status === "pending" && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleLeaveDecision(lv, "approved")}
+                          className="royal-btn rounded-lg px-3 py-1 text-xs inline-flex items-center gap-1"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          <span>{t("approve")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleLeaveDecision(lv, "rejected")}
+                          className="royal-btn-outline rounded-lg px-3 py-1 text-xs text-rose-400 inline-flex items-center gap-1"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          <span>{t("reject")}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Quick Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingSpend(null);
-                setSpendModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-white text-blue-700 hover:bg-blue-50 px-4 py-2.5 text-xs sm:text-sm font-bold shadow-xs"
-            >
-              <Plus className="h-4 w-4" />
-              <span>
-                + Add {deptSlug ? deptSlug.toUpperCase() : ""} Spending
-              </span>
-            </button>
+          <div className="royal-card rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+              <h2 className="text-base font-bold">{t("todo")}</h2>
+              <button
+                type="button"
+                onClick={() => setTaskModal(true)}
+                className="royal-btn rounded-lg px-3 py-1 text-xs inline-flex items-center gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>{t("assignWork")}</span>
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setEditingEarn(null);
-                setEarnModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-900/40 hover:bg-blue-900/60 border border-white/25 px-4 py-2.5 text-xs sm:text-sm font-bold text-white"
-            >
-              <Plus className="h-4 w-4" />
-              <span>+ Add Customer Earning</span>
-            </button>
+            {tasks.length === 0 ? (
+              <p className="py-8 text-center text-xs text-muted-royal">
+                {t("noRecords")}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {tasks.slice(0, 12).map((tk) => (
+                  <div
+                    key={tk.id}
+                    className="royal-elevated rounded-xl p-4 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="gold-accent font-bold">
+                        {tk.sectionSlug.toUpperCase()} · {tk.assignedToName}
+                      </span>
+                      <span
+                        className={`font-bold uppercase ${
+                          tk.status === "completed"
+                            ? "text-emerald-400"
+                            : tk.status === "in_progress"
+                            ? "text-sky-300"
+                            : "text-muted-royal"
+                        }`}
+                      >
+                        {tk.status}
+                      </span>
+                    </div>
+                    <div className="text-sm font-bold">{tk.title}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : tab === "spending" ? (
+        <div className="space-y-4">
+          {spending.length === 0 ? (
+            <div className="royal-card rounded-2xl p-10 text-center text-xs text-muted-royal">
+              {t("noRecords")}
+            </div>
+          ) : (
+            spending.map((rec) => (
+              <SpendingTopUpCard
+                key={rec.id}
+                record={rec}
+                currency={settings.currency}
+                timezone={settings.timezone}
+                canEdit
+                canDelete
+                onEdit={(r) => {
+                  setEditingSpend(r);
+                  setSpendModal(true);
+                }}
+                onDelete={handleDeleteSpending}
+              />
+            ))
+          )}
+        </div>
+      ) : tab === "customers" ? (
+        <div className="space-y-4">
+          {earnings.length === 0 ? (
+            <div className="royal-card rounded-2xl p-10 text-center text-xs text-muted-royal">
+              {t("noRecords")}
+            </div>
+          ) : (
+            earnings.map((rec) => (
+              <EarningTopUpCard
+                key={rec.id}
+                record={rec}
+                currency={settings.currency}
+                timezone={settings.timezone}
+                canEdit
+                canDelete
+                onEdit={(r) => {
+                  setEditingEarn(r);
+                  setEarnModal(true);
+                }}
+                onDelete={handleDeleteEarning}
+              />
+            ))
+          )}
+        </div>
+      ) : tab === "staff" ? (
+        <div className="space-y-5">
+          <div className="flex flex-wrap justify-end gap-2">
+            {isOwner && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSecMode("create");
+                    setSecModal(true);
+                  }}
+                  className="royal-btn-outline rounded-xl px-3.5 py-2 text-xs inline-flex items-center gap-1.5"
+                >
+                  <FolderPlus className="h-3.5 w-3.5 gold-accent" />
+                  <span>{t("addSection")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSecMode("divide");
+                    setSecModal(true);
+                  }}
+                  className="royal-btn-outline rounded-xl px-3.5 py-2 text-xs inline-flex items-center gap-1.5"
+                >
+                  <Split className="h-3.5 w-3.5 gold-accent" />
+                  <span>{t("divideStaff")}</span>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -304,486 +510,118 @@ export function AdminPortalView() {
                 setEditingAccount(null);
                 setStaffModal(true);
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-900/40 hover:bg-blue-900/60 border border-white/25 px-4 py-2.5 text-xs sm:text-sm font-bold text-white"
+              className="royal-btn rounded-xl px-4 py-2 text-xs inline-flex items-center gap-1.5"
             >
               <UserPlus className="h-4 w-4" />
-              <span>
-                + Create {deptSlug ? deptSlug.toUpperCase() : ""} Staff
-              </span>
+              <span>{t("addStaff")}</span>
             </button>
-          </div>
-        </div>
-
-        {/* Summary Metrics inside Portal */}
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          <div className="rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 p-4">
-            <div className="text-xs font-bold uppercase text-blue-100">
-              {deptSlug
-                ? `${deptSlug.toUpperCase()} Department Spending`
-                : "Total Workspace Spending"}
-            </div>
-            <div className="mt-1.5 text-2xl font-extrabold tabular-nums">
-              {formatMoney(totalDeptSpending, settings.currency)}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 p-4">
-            <div className="text-xs font-bold uppercase text-blue-100">
-              Successful Customers & Revenue
-            </div>
-            <div className="mt-1.5 text-2xl font-extrabold tabular-nums">
-              {earnings.length} Clients ·{" "}
-              {formatMoney(totalCustomerEarning, settings.currency)}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 p-4">
-            <div className="text-xs font-bold uppercase text-blue-100">
-              {deptSlug
-                ? `${deptSlug.toUpperCase()} Team Staff`
-                : "Managed Staff & Sections"}
-            </div>
-            <div className="mt-1.5 text-2xl font-extrabold tabular-nums">
-              {staffOnlyList.length} Staff
-              {isOwner ? ` · ${sections.length} Sections` : ""}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Portal Sub-Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-2 shadow-xs">
-        <button
-          type="button"
-          onClick={() => setTab("spending")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition-all ${
-            tab === "spending"
-              ? "bg-blue-600 text-white shadow-xs"
-              : "text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-800"
-          }`}
-        >
-          <ArrowDownRight className="h-4 w-4" />
-          <span>
-            {deptSlug ? `${deptSlug.toUpperCase()} Spending` : "All Spending"} (
-            {spending.length})
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setTab("customers")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition-all ${
-            tab === "customers"
-              ? "bg-blue-600 text-white shadow-xs"
-              : "text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-800"
-          }`}
-        >
-          <ArrowUpRight className="h-4 w-4" />
-          <span>Customers & IT Links ({earnings.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setTab("staff")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition-all ${
-            tab === "staff"
-              ? "bg-blue-600 text-white shadow-xs"
-              : "text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-800"
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          <span>
-            {deptSlug
-              ? `${deptSlug.toUpperCase()} Staff & Status`
-              : "Sections, CEOs & Staff"}{" "}
-            ({accounts.length})
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setTab("settings")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition-all ${
-            tab === "settings"
-              ? "bg-blue-600 text-white shadow-xs"
-              : "text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-800"
-          }`}
-        >
-          <Settings className="h-4 w-4" />
-          <span>{isOwner ? "Settings & Audit Log" : "Portal Security"}</span>
-        </button>
-      </div>
-
-      {/* TAB CONTENT */}
-      {loading ? (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-12 text-center text-sm text-slate-500">
-          Loading portal data...
-        </div>
-      ) : tab === "spending" ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              {deptSlug
-                ? `${deptSlug.toUpperCase()} Spending Top-Ups`
-                : "All Department Spending Top-Ups"}
-            </h2>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingSpend(null);
-                setSpendModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs sm:text-sm font-bold text-white"
-            >
-              <Plus className="h-4 w-4" />
-              Add Spending Top-Up
-            </button>
-          </div>
-
-          {spending.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-blue-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-10 text-center text-sm text-slate-500">
-              No spending entries recorded yet. Click{" "}
-              <strong>Add Spending Top-Up</strong> above to add your first entry.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {spending.map((rec) => (
-                <SpendingTopUpCard
-                  key={rec.id}
-                  record={rec}
-                  currency={settings.currency}
-                  timezone={settings.timezone}
-                  canEdit
-                  canDelete
-                  onEdit={(r) => {
-                    setEditingSpend(r);
-                    setSpendModal(true);
-                  }}
-                  onDelete={handleDeleteSpending}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : tab === "customers" ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              Successful Customers & Delivered IT Work Links
-            </h2>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingEarn(null);
-                setEarnModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs sm:text-sm font-bold text-white"
-            >
-              <Plus className="h-4 w-4" />
-              Add Customer Earning
-            </button>
-          </div>
-
-          {earnings.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-blue-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-10 text-center text-sm text-slate-500">
-              No paid customer entries recorded yet. Click{" "}
-              <strong>Add Customer Earning</strong> above to log customer
-              details, payment amount, and IT work link.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {earnings.map((rec) => (
-                <EarningTopUpCard
-                  key={rec.id}
-                  record={rec}
-                  currency={settings.currency}
-                  timezone={settings.timezone}
-                  canEdit
-                  canDelete
-                  onEdit={(r) => {
-                    setEditingEarn(r);
-                    setEarnModal(true);
-                  }}
-                  onDelete={handleDeleteEarning}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : tab === "staff" ? (
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                {deptSlug
-                  ? `${deptSlug.toUpperCase()} Staff Accounts & Status Control`
-                  : "All Portal Accounts, Staff & Sections"}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Create staff accounts and click any status pill to switch between
-                Active, Free, Busy, or Not Available.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {isOwner && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSecMode("create");
-                      setSecModal(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/15 px-3.5 py-2 text-xs font-bold text-blue-700 dark:text-blue-300"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                    + Add Section
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSecMode("divide");
-                      setSecModal(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200"
-                  >
-                    <Split className="h-4 w-4 text-blue-600" />
-                    Divide / Move Staff
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAccount(null);
-                  setStaffModal(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs sm:text-sm font-bold text-white"
-              >
-                <UserPlus className="h-4 w-4" />+ Create Account
-              </button>
-            </div>
           </div>
 
           {accounts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-blue-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-10 text-center text-sm text-slate-500">
-              No staff accounts created yet in this department. Click{" "}
-              <strong>+ Create Account</strong> to add your first team member.
+            <div className="royal-card rounded-2xl p-10 text-center text-xs text-muted-royal">
+              {t("noRecords")}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {accounts.map((acc) => {
-                const stMeta = STAFF_STATUS_META[acc.staffStatus];
-                return (
-                  <div
-                    key={acc.id}
-                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-5 space-y-4 shadow-xs"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                            {acc.name}
-                          </h3>
-                          <span className="rounded-md bg-blue-50 dark:bg-blue-500/15 px-2 py-0.5 text-[11px] font-bold uppercase text-blue-700 dark:text-blue-300">
-                            {PORTAL_META[acc.portalRole].shortTitle}
-                          </span>
-                          {acc.sectionSlug && (
-                            <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-600 dark:text-slate-300">
-                              {acc.sectionName || acc.sectionSlug}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          {acc.jobTitle} · {acc.email}
-                        </p>
+              {accounts.map((acc) => (
+                <div
+                  key={acc.id}
+                  className="royal-card rounded-2xl p-5 space-y-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-base">{acc.name}</span>
+                        <span className="text-[11px] font-bold uppercase gold-accent">
+                          {PORTAL_META[acc.portalRole].shortTitle}
+                        </span>
                       </div>
+                      <p className="text-xs text-muted-royal">
+                        {acc.jobTitle} · {acc.email}
+                      </p>
+                    </div>
 
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingAccount(acc);
+                          setStaffModal(true);
+                        }}
+                        className="royal-btn-outline rounded-lg p-1.5"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {acc.id !== user.id && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingAccount(acc);
-                            setStaffModal(true);
-                          }}
-                          className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 text-slate-600 dark:text-slate-300 hover:border-blue-400 hover:text-blue-600"
-                          title="Edit Details / Reset Password"
+                          onClick={() => handleDeleteAccount(acc)}
+                          className="royal-btn-outline rounded-lg p-1.5 text-rose-400"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                        {acc.id !== user.id && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAccount(acc)}
-                            className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 text-slate-500 hover:border-rose-300 hover:text-rose-600"
-                            title="Delete Account"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
-
-                    {/* 4-button Status Switcher: Active, Free, Busy, Not Available */}
-                    {acc.portalRole === "staff" && (
-                      <div className="rounded-xl bg-[#F6F9FF] dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 p-3">
-                        <div className="flex items-center justify-between text-xs mb-2">
-                          <span className="font-bold text-slate-600 dark:text-slate-300">
-                            Current Staff Status:
-                          </span>
-                          <span
-                            className={`rounded-full border px-2 py-0.5 font-bold ${stMeta.pillClass}`}
-                          >
-                            {stMeta.label}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                          {(
-                            [
-                              "active",
-                              "free",
-                              "busy",
-                              "not_available",
-                            ] as StaffStatus[]
-                          ).map((st) => (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={() => handleQuickStatus(acc, st)}
-                              className={`rounded-lg py-1.5 px-2 text-xs font-bold transition-colors ${
-                                acc.staffStatus === st
-                                  ? "bg-blue-600 text-white"
-                                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-400"
-                              }`}
-                            >
-                              {STAFF_STATUS_META[st].label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* Settings & Audit Logs Tab */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <form
-            onSubmit={handleSaveSettings}
-            className="lg:col-span-6 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 space-y-4 shadow-xs"
-          >
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <KeyRound className="h-5 w-5 text-blue-600" />
-              <span>
-                {isOwner
-                  ? "Workspace Settings & Security"
-                  : "Update My CEO Password"}
-              </span>
-            </h2>
 
-            {isOwner && (
-              <>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                    Workspace / Company Name
-                  </label>
-                  <input
-                    type="text"
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                    Display Currency
-                  </label>
-                  <select
-                    value={currency}
-                    onChange={(e) =>
-                      setCurrency(e.target.value as CurrencyCode)
-                    }
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white"
-                  >
-                    {Object.values(CURRENCIES).map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300 pt-1">
-                  <input
-                    type="checkbox"
-                    checked={showSetupHint}
-                    onChange={(e) => setShowSetupHint(e.target.checked)}
-                    className="rounded border-slate-300"
-                  />
-                  <span>
-                    Show initial setup login hint card on the Portal sign-in screen
-                  </span>
-                </label>
-              </>
-            )}
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Change My Portal Password
-              </label>
-              <input
-                type="password"
-                minLength={6}
-                placeholder="Enter new password (min 6 characters)"
-                value={myNewPassword}
-                onChange={(e) => setMyNewPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={savingSettings}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-5 py-2.5 text-sm font-bold text-white"
-            >
-              <Save className="h-4 w-4" />
-              <span>{savingSettings ? "Saving..." : "Save Changes"}</span>
-            </button>
-          </form>
-
-          {isOwner && (
-            <div className="lg:col-span-6 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 shadow-xs">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
-                Recent Audit Trail
-              </h2>
-              {auditLogs.length === 0 ? (
-                <p className="text-xs text-slate-500">No audit entries yet.</p>
-              ) : (
-                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                  {auditLogs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 px-3.5 py-2.5 text-xs"
-                    >
-                      <div className="font-semibold text-slate-800 dark:text-slate-200">
-                        {log.summary}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        {log.actorName} ({log.actorRole}) ·{" "}
-                        {formatDateTime(log.createdAt, settings.timezone)}
-                      </div>
+                  {acc.portalRole === "staff" && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {(
+                        [
+                          "active",
+                          "free",
+                          "busy",
+                          "not_available",
+                        ] as StaffStatus[]
+                      ).map((st) => (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => handleQuickStatus(acc, st)}
+                          className={`rounded-lg py-1.5 px-2 text-xs font-semibold ${
+                            acc.staffStatus === st
+                              ? "royal-btn"
+                              : "royal-btn-outline"
+                          }`}
+                        >
+                          {STAFF_STATUS_META[st].label}
+                        </button>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>
+      ) : isOwner ? (
+        <OwnerStudioPanel />
+      ) : (
+        <form
+          onSubmit={handleCeoPasswordChange}
+          className="royal-card max-w-md rounded-2xl p-6 space-y-4"
+        >
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <KeyRound className="h-4 w-4 gold-accent" />
+            <span>{t("password")}</span>
+          </h3>
+          <input
+            type="password"
+            minLength={6}
+            placeholder="New password"
+            value={myNewPassword}
+            onChange={(e) => setMyNewPassword(e.target.value)}
+            className="royal-input w-full"
+          />
+          <button
+            type="submit"
+            disabled={savingPw}
+            className="royal-btn rounded-xl px-5 py-2 text-sm inline-flex items-center gap-2"
+          >
+            <Save className="h-4 w-4" />
+            <span>{t("save")}</span>
+          </button>
+        </form>
       )}
 
       {/* Modals */}
@@ -791,7 +629,7 @@ export function AdminPortalView() {
         open={spendModal}
         onClose={() => setSpendModal(false)}
         onSaved={() => {
-          toast(editingSpend ? "Spending updated!" : "Spending added!");
+          toast("Saved");
           loadWorkspace();
         }}
         editing={editingSpend}
@@ -805,9 +643,7 @@ export function AdminPortalView() {
         open={earnModal}
         onClose={() => setEarnModal(false)}
         onSaved={() => {
-          toast(
-            editingEarn ? "Customer record updated!" : "Customer earning added!"
-          );
+          toast("Saved");
           loadWorkspace();
         }}
         editing={editingEarn}
@@ -818,9 +654,7 @@ export function AdminPortalView() {
         open={staffModal}
         onClose={() => setStaffModal(false)}
         onSaved={() => {
-          toast(
-            editingAccount ? "Account updated!" : "New account created!"
-          );
+          toast("Saved");
           loadWorkspace();
         }}
         editing={editingAccount}
@@ -829,21 +663,29 @@ export function AdminPortalView() {
         defaultSectionSlug={deptSlug || "bd"}
       />
 
+      <TaskModal
+        open={taskModal}
+        onClose={() => setTaskModal(false)}
+        onSaved={() => {
+          toast("Work assigned!");
+          loadWorkspace();
+        }}
+        actorRole={user.portalRole}
+        defaultSection={deptSlug === "it" ? "it" : "bd"}
+        staffList={allStaff}
+      />
+
       {isOwner && (
         <SectionModal
           open={secModal}
           mode={secMode}
           onClose={() => setSecModal(false)}
           onSaved={() => {
-            toast(
-              secMode === "create"
-                ? "New section added!"
-                : "Staff divided across sections!"
-            );
+            toast("Saved");
             loadWorkspace();
           }}
           sections={sections}
-          staffList={staffOnlyList}
+          staffList={allStaff}
         />
       )}
     </div>

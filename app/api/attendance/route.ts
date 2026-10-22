@@ -10,6 +10,7 @@ import { one, rawQuery, toNum } from "@/lib/db";
 import { todayInTimezone } from "@/lib/format";
 import {
   mapAttendanceRow,
+  mapLeaveRow,
   mapSectionRow,
 } from "@/lib/mappers";
 import type { AttendanceStatus } from "@/lib/types";
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
   const sectionFilter = url.searchParams.get("section")?.trim().toLowerCase();
 
-  const [sectionRows, rows, myHistoryRows, sessionUser] = await Promise.all([
+  const [sectionRows, rows, monthAggRows, leaveRows] = await Promise.all([
     rawQuery<Record<string, unknown>>(
       `SELECT s.*,
               (SELECT COUNT(*)::int FROM df_users u WHERE u.portal_role = 'staff' AND u.section_slug = s.slug) AS staff_count
@@ -95,7 +96,13 @@ export async function GET(request: Request) {
        WHERE work_date LIKE $1`,
       [`${workDate.slice(0, 7)}%`]
     ),
-    getSessionUser(),
+    rawQuery<Record<string, unknown>>(
+      `SELECT l.*, u.email AS user_email
+       FROM df_leave_requests l
+       LEFT JOIN df_users u ON u.id = l.user_id
+       ORDER BY l.created_at DESC
+       LIMIT 50`
+    ),
   ]);
 
   const records = rows.map((r) => mapAttendanceRow(r, workDate));
@@ -107,23 +114,11 @@ export async function GET(request: Request) {
     onLeave: records.filter((r) => r.status === "on_leave").length,
     absent: records.filter((r) => r.status === "absent").length,
     unmarked: records.filter((r) => r.status === "unmarked").length,
-    monthPresent: toNum(myHistoryRows[0]?.month_present, 0),
-    monthLate: toNum(myHistoryRows[0]?.month_late, 0),
-    monthLeave: toNum(myHistoryRows[0]?.month_leave, 0),
-    monthAbsent: toNum(myHistoryRows[0]?.month_absent, 0),
+    monthPresent: toNum(monthAggRows[0]?.month_present, 0),
+    monthLate: toNum(monthAggRows[0]?.month_late, 0),
+    monthLeave: toNum(monthAggRows[0]?.month_leave, 0),
+    monthAbsent: toNum(monthAggRows[0]?.month_absent, 0),
   };
-
-  let selfHistory: Array<Record<string, unknown>> = [];
-  if (sessionUser) {
-    selfHistory = await rawQuery<Record<string, unknown>>(
-      `SELECT work_date, status, check_in, check_out, note
-       FROM df_attendance
-       WHERE user_id = $1
-       ORDER BY work_date DESC
-       LIMIT 14`,
-      [sessionUser.id]
-    );
-  }
 
   return jsonNoStore({
     workDate,
@@ -131,95 +126,97 @@ export async function GET(request: Request) {
     sections: sectionRows.map(mapSectionRow),
     summary,
     records,
-    selfHistory,
+    leaves: leaveRows.map(mapLeaveRow),
   });
 }
 
 export async function POST(request: Request) {
+  await ensureBootstrapped();
   const actor = await getSessionUser();
-  if (!actor) {
-    return jsonNoStore({ error: "Sign in required." }, 401);
-  }
-
   const settings = await getAppSettings();
   const today = todayInTimezone(settings.timezone);
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "check_in" | "check_out" | "mark";
+    action?: "present" | "check_in" | "check_out" | "mark";
     userId?: string;
     workDate?: string;
     status?: AttendanceStatus;
     note?: string;
   };
 
-  const action = body.action ?? "mark";
+  const action = body.action ?? "present";
   const workDate =
     body.workDate && /^\d{4}-\d{2}-\d{2}$/.test(body.workDate)
       ? body.workDate
       : today;
 
-  // Self Check-In / Check-Out (used by Staff Portal or own account)
-  if (action === "check_in" || action === "check_out") {
-    const targetId = actor.id;
-    const existing = await one<Record<string, unknown>>(
-      `SELECT * FROM df_attendance WHERE user_id = $1 AND work_date = $2`,
-      [targetId, workDate]
+  // One-click self "Present" button on Attendance page (or check_in from Staff Portal)
+  if (action === "present" || action === "check_in") {
+    const targetId = String(body.userId || actor?.id || "").trim();
+    if (!targetId) {
+      return jsonNoStore({ error: "Select a team member." }, 400);
+    }
+
+    const targetUser = await one<Record<string, unknown>>(
+      `SELECT * FROM df_users WHERE id = $1`,
+      [targetId]
+    );
+    if (!targetUser) {
+      return jsonNoStore({ error: "Member not found." }, 404);
+    }
+
+    const nowIso = new Date().toISOString();
+    await rawQuery(
+      `INSERT INTO df_attendance (
+         id, user_id, work_date, status, check_in, note, marked_by_id, marked_by_name, updated_at
+       ) VALUES ($1, $2, $3, 'present', $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, work_date)
+       DO UPDATE SET
+         status = 'present',
+         check_in = COALESCE(df_attendance.check_in, EXCLUDED.check_in),
+         updated_at = NOW()`,
+      [
+        randomUUID(),
+        targetId,
+        workDate,
+        nowIso,
+        String(body.note ?? "").trim(),
+        actor?.id ?? targetId,
+        actor?.name ?? String(targetUser.name),
+      ]
     );
 
-    if (action === "check_in") {
-      const nowIso = new Date().toISOString();
-      await rawQuery(
-        `INSERT INTO df_attendance (
-           id, user_id, work_date, status, check_in, note, marked_by_id, marked_by_name, updated_at
-         ) VALUES ($1, $2, $3, 'present', $4, $5, $6, $7, NOW())
-         ON CONFLICT (user_id, work_date)
-         DO UPDATE SET
-           check_in = COALESCE(df_attendance.check_in, EXCLUDED.check_in),
-           status = CASE WHEN df_attendance.status = 'absent' THEN 'present' ELSE df_attendance.status END,
-           note = CASE WHEN EXCLUDED.note <> '' THEN EXCLUDED.note ELSE df_attendance.note END,
-           updated_at = NOW()`,
-        [
-          randomUUID(),
-          targetId,
-          workDate,
-          nowIso,
-          String(body.note ?? "").trim(),
-          actor.id,
-          actor.name,
-        ]
-      );
+    if (actor) {
       await logAudit({
         actor,
-        action: "attendance.checkin",
+        action: "attendance.present",
         targetType: "attendance",
-        summary: `${actor.name} checked in for ${workDate}`,
+        summary: `${String(targetUser.name)} marked Present (${workDate})`,
       });
-      return jsonNoStore({ ok: true, action: "check_in" });
     }
 
-    if (!existing) {
-      return jsonNoStore(
-        { error: "Please check in first before checking out." },
-        400
-      );
-    }
+    return jsonNoStore({ ok: true, status: "present" });
+  }
 
+  if (action === "check_out") {
+    const targetId = String(body.userId || actor?.id || "").trim();
+    if (!targetId) {
+      return jsonNoStore({ error: "Member required." }, 400);
+    }
     await rawQuery(
       `UPDATE df_attendance
        SET check_out = $1, updated_at = NOW()
        WHERE user_id = $2 AND work_date = $3`,
       [new Date().toISOString(), targetId, workDate]
     );
-    await logAudit({
-      actor,
-      action: "attendance.checkout",
-      targetType: "attendance",
-      summary: `${actor.name} checked out for ${workDate}`,
-    });
     return jsonNoStore({ ok: true, action: "check_out" });
   }
 
-  // Admin / CEO marking attendance for staff member
+  // Admin / CEO status override
+  if (!actor) {
+    return jsonNoStore({ error: "Sign in required." }, 401);
+  }
+
   const targetUserId = String(body.userId || actor.id);
   const targetUser = await one<Record<string, unknown>>(
     `SELECT * FROM df_users WHERE id = $1`,
@@ -238,10 +235,7 @@ export async function POST(request: Request) {
     !canManageStaffSection(actor, targetSection)
   ) {
     return jsonNoStore(
-      {
-        error:
-          "You only have permission to mark attendance for your own department.",
-      },
+      { error: "Not authorized for this section." },
       403
     );
   }
@@ -284,7 +278,7 @@ export async function POST(request: Request) {
     actor,
     action: "attendance.marked",
     targetType: "attendance",
-    summary: `Marked ${String(targetUser.name)} as ${status.toUpperCase()} on ${workDate}`,
+    summary: `Marked ${String(targetUser.name)} ${status.toUpperCase()} on ${workDate}`,
   });
 
   return jsonNoStore({ ok: true });

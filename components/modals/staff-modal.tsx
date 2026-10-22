@@ -36,7 +36,6 @@ export function StaffModal({
   const [jobTitle, setJobTitle] = useState("");
   const [sectionSlug, setSectionSlug] = useState("it");
   const [phone, setPhone] = useState("");
-  const [location, setLocation] = useState("");
   const [skillsText, setSkillsText] = useState("");
   const [bio, setBio] = useState("");
   const [freeTime, setFreeTime] = useState("");
@@ -57,7 +56,6 @@ export function StaffModal({
         lockedSection || editing.sectionSlug || sections[0]?.slug || "it"
       );
       setPhone(editing.phone);
-      setLocation(editing.location);
       setSkillsText(editing.skills.join(", "));
       setBio(editing.bio);
       setFreeTime(editing.freeTime);
@@ -72,7 +70,6 @@ export function StaffModal({
         lockedSection || defaultSectionSlug || sections[0]?.slug || "it"
       );
       setPhone("");
-      setLocation("");
       setSkillsText("");
       setBio("");
       setFreeTime("");
@@ -103,7 +100,6 @@ export function StaffModal({
               ? null
               : lockedSection || sectionSlug,
           phone,
-          location,
           skills: skillsText,
           bio,
           freeTime,
@@ -119,135 +115,131 @@ export function StaffModal({
       onSaved();
       onClose();
     } catch {
-      setError("Network error while saving staff member.");
+      setError("Network error.");
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111C35] shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-blue-600 px-6 py-4 text-white">
-          <div>
-            <h2 className="text-lg font-bold">
-              {editing ? `Edit Account — ${editing.name}` : "Create Staff Portal Account"}
-            </h2>
-            <p className="text-xs text-blue-100">
-              Staff can log into Staff Portal using their email & password
-            </p>
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-xs">
+      <div className="royal-card w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
+          <h2 className="text-lg font-bold">
+            {editing ? `Edit — ${editing.name}` : "Add Account"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 hover:bg-blue-700 transition-colors"
+            className="rounded-lg p-1.5 hover:opacity-80"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+        <form
+          onSubmit={handleSubmit}
+          className="p-6 space-y-4 max-h-[82vh] overflow-y-auto"
+        >
           {error && (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 dark:bg-rose-500/15 dark:border-rose-500/30 px-4 py-2.5 text-sm font-medium text-rose-700 dark:text-rose-300">
+            <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-300">
               {error}
             </div>
           )}
 
           {actorRole === "erp_owner" && !editing && (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Portal Account Type
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Portal Role
               </label>
               <select
                 value={portalRole}
                 onChange={(e) => setPortalRole(e.target.value as PortalRole)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               >
-                <option value="staff">Staff Member (Staff Portal)</option>
-                <option value="it_ceo">IT CEO (IT CEO Portal)</option>
-                <option value="bd_ceo">BD CEO (BD CEO Portal)</option>
-                <option value="erp_owner">ERP Owner (Full Access)</option>
+                <option value="staff">Staff</option>
+                <option value="it_ceo">IT CEO</option>
+                <option value="bd_ceo">BD CEO</option>
+                <option value="erp_owner">ERP Owner</option>
               </select>
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Full Name *
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Name *
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Hamza Siddiqui"
+                placeholder="Full name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Role / Designation *
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Role Title *
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Senior React Developer / BD Closer"
+                placeholder="Role / title"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Login Email *
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Email *
               </label>
               <input
                 type="email"
                 required
-                placeholder="staff@devzard.app"
+                placeholder="email@domain.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                {editing ? "Reset Password (Optional)" : "Portal Password *"}
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                {editing ? "New Password" : "Password *"}
               </label>
               <input
                 type="password"
                 required={!editing}
                 minLength={6}
-                placeholder={
-                  editing ? "Leave blank to keep unchanged" : "Min 6 characters"
-                }
+                placeholder={editing ? "Optional" : "Min 6 characters"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Section / Department
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Section
               </label>
               {lockedSection ? (
-                <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/15 px-3.5 py-2.5 text-sm font-bold text-blue-700 dark:text-blue-300">
-                  {lockedSection.toUpperCase()} Section
+                <div className="royal-elevated rounded-xl px-3.5 py-2.5 text-sm font-bold uppercase">
+                  {lockedSection}
                 </div>
               ) : (
                 <select
                   value={sectionSlug}
                   onChange={(e) => setSectionSlug(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  className="royal-input w-full"
                 >
                   {sections.map((s) => (
                     <option key={s.id} value={s.slug}>
@@ -265,13 +257,13 @@ export function StaffModal({
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Current Availability Status
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Status
               </label>
               <select
                 value={staffStatus}
                 onChange={(e) => setStaffStatus(e.target.value as StaffStatus)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               >
                 <option value="active">Active</option>
                 <option value="free">Free</option>
@@ -283,76 +275,72 @@ export function StaffModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                Phone / WhatsApp Contact
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Phone
               </label>
               <input
                 type="text"
-                placeholder="+92 300 1234567"
+                placeholder="+92..."
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-                City / Free Time Window
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                Free Time
               </label>
               <input
                 type="text"
-                placeholder="e.g. Mon–Fri 3:00 PM – 6:00 PM"
+                placeholder="e.g. 3:00 PM – 6:00 PM"
                 value={freeTime}
                 onChange={(e) => setFreeTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                className="royal-input w-full"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-              Skills (Comma Separated)
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+              Skills
             </label>
             <input
               type="text"
-              placeholder="e.g. Next.js, TypeScript, PostgreSQL, UI/UX"
+              placeholder="Comma separated skills"
               value={skillsText}
               onChange={(e) => setSkillsText(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+              className="royal-input w-full"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
-              Bio / Role Summary
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+              Bio
             </label>
             <textarea
               rows={2}
-              placeholder="Short bio or core responsibilities..."
+              placeholder="Short bio..."
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+              className="royal-input w-full"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border-subtle)]">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="royal-btn-outline rounded-xl px-4 py-2 text-sm"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-blue-600/20"
+              className="royal-btn rounded-xl px-5 py-2 text-sm disabled:opacity-60"
             >
-              {saving
-                ? "Saving..."
-                : editing
-                ? "Save Staff Updates"
-                : "Create Staff Account"}
+              {saving ? "Saving..." : "Save"}
             </button>
           </div>
         </form>

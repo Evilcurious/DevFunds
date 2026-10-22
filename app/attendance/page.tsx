@@ -1,46 +1,41 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import {
-  CalendarCheck2,
-  LogIn,
-  LogOut,
-  ShieldCheck,
-} from "lucide-react";
+import { Check, CheckCircle2, Send, X } from "lucide-react";
 import { useApp } from "@/components/app-context";
-import { ATTENDANCE_STATUS_META, STAFF_STATUS_META } from "@/lib/constants";
+import { ATTENDANCE_STATUS_META, LEAVE_TYPES } from "@/lib/constants";
 import { formatTimeShort, todayInTimezone } from "@/lib/format";
 import type {
   AttendanceRecord,
-  AttendanceStatus,
+  LeaveRequestRecord,
   SectionRecord,
 } from "@/lib/types";
 
 export default function AttendancePage() {
-  const { user, settings, toast } = useApp();
+  const { user, settings, lang, t, toast } = useApp();
+  const [view, setView] = useState<"present" | "leave">("present");
   const [date, setDate] = useState<string>(() =>
     todayInTimezone(settings.timezone)
   );
   const [section, setSection] = useState<string>("all");
   const [sections, setSections] = useState<SectionRecord[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [summary, setSummary] = useState({
-    totalStaff: 0,
-    present: 0,
-    late: 0,
-    halfDay: 0,
-    onLeave: 0,
-    absent: 0,
-    unmarked: 0,
-    monthPresent: 0,
-    monthLate: 0,
-    monthLeave: 0,
-    monthAbsent: 0,
-  });
+  const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadAttendance = useCallback(async () => {
+  // Leave request form state
+  const [leaveUserId, setLeaveUserId] = useState("");
+  const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
+  const [startDate, setStartDate] = useState<string>(() =>
+    todayInTimezone(settings.timezone)
+  );
+  const [endDate, setEndDate] = useState<string>(() =>
+    todayInTimezone(settings.timezone)
+  );
+  const [reason, setReason] = useState("");
+  const [submittingLeave, setSubmittingLeave] = useState(false);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(
@@ -50,325 +45,416 @@ export default function AttendancePage() {
       if (res.ok) {
         const json = await res.json();
         setSections(json.sections ?? []);
-        setRecords(json.records ?? []);
-        if (json.summary) setSummary(json.summary);
+        const list: AttendanceRecord[] = json.records ?? [];
+        setRecords(list);
+        setLeaves(json.leaves ?? []);
+        if (user?.portalRole === "staff") {
+          setLeaveUserId(user.id);
+        } else if (!leaveUserId && list[0]) {
+          setLeaveUserId(list[0].userId);
+        }
       }
     } finally {
       setLoading(false);
     }
-  }, [date, section]);
+  }, [date, section, user, leaveUserId]);
 
   useEffect(() => {
-    loadAttendance();
-  }, [loadAttendance]);
+    loadData();
+  }, [loadData]);
 
-  const canMarkRow = (row: AttendanceRecord) => {
-    if (!user) return false;
-    if (user.portalRole === "erp_owner") return true;
-    if (user.portalRole === "it_ceo") return row.sectionSlug === "it";
-    if (user.portalRole === "bd_ceo") return row.sectionSlug === "bd";
-    return false;
-  };
-
-  const handleMarkStatus = async (
-    row: AttendanceRecord,
-    status: AttendanceStatus
-  ) => {
+  // One-click "Present" handler!
+  const handleClickPresent = async (row: AttendanceRecord) => {
     const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        action: "mark",
+        action: "present",
         userId: row.userId,
         workDate: date,
-        status,
       }),
     });
     if (res.ok) {
-      toast(`${row.userName} marked ${ATTENDANCE_STATUS_META[status].label}`);
-      loadAttendance();
+      toast(`${row.userName} — ${t("present")}`);
+      loadData();
     } else {
       const err = await res.json().catch(() => ({}));
-      toast(err.error || "Unable to mark attendance", "error");
+      toast(err.error || "Failed", "error");
     }
   };
 
-  const handleSelfAction = async (action: "check_in" | "check_out") => {
-    const res = await fetch("/api/attendance", {
-      method: "POST",
+  const handleSubmitLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingLeave(true);
+    try {
+      const res = await fetch("/api/leaves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user?.portalRole === "staff" ? user.id : leaveUserId,
+          leaveType,
+          startDate,
+          endDate,
+          reason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setReason("");
+        toast("Leave request sent for approval!");
+        loadData();
+      } else {
+        toast(data.error || "Unable to submit leave", "error");
+      }
+    } finally {
+      setSubmittingLeave(false);
+    }
+  };
+
+  const canReviewLeave = (lv: LeaveRequestRecord) => {
+    if (!user) return false;
+    if (user.portalRole === "erp_owner") return true;
+    if (user.portalRole === "it_ceo") return lv.sectionSlug === "it";
+    if (user.portalRole === "bd_ceo") return lv.sectionSlug === "bd";
+    return false;
+  };
+
+  const handleLeaveDecision = async (
+    lv: LeaveRequestRecord,
+    decision: "approved" | "rejected"
+  ) => {
+    const res = await fetch(`/api/leaves/${lv.id}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ status: decision }),
     });
     if (res.ok) {
       toast(
-        action === "check_in"
-          ? "Checked in successfully for today!"
-          : "Checked out successfully!"
+        decision === "approved"
+          ? `${lv.userName} leave approved`
+          : `${lv.userName} leave rejected`
       );
-      loadAttendance();
+      loadData();
     } else {
       const err = await res.json().catch(() => ({}));
-      toast(err.error || "Attendance update failed", "error");
+      toast(err.error || "Action failed", "error");
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Attendance Header */}
-      <div className="rounded-3xl border border-blue-100 dark:border-slate-800 bg-white dark:bg-[#111C35] p-6 sm:p-7 shadow-xs">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1">
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-              <CalendarCheck2 className="h-4 w-4" />
-              Daily & Monthly Staff Attendance Ledger
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
-              Attendance Tracking
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Track daily check-ins, late arrivals, leaves & absences across BD,
-              IT, and all custom staff sections.
-            </p>
-          </div>
+    <div className="space-y-7">
+      {/* Header + 2-Section Switcher: Mark Present vs Leave Requests */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            {t("attendance")}
+          </h1>
+          <div className="gold-line w-24" />
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setView("present")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              view === "present" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("markAttendance")}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setView("leave")}
+            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold ${
+              view === "leave" ? "royal-btn" : "royal-btn-outline"
+            }`}
+          >
+            {t("leaveRequests")}
+          </button>
+        </div>
+      </div>
+
+      {view === "present" ? (
+        <div className="space-y-5">
+          {/* Date & Section Filter */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSection("all")}
+                className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold uppercase ${
+                  section === "all" ? "royal-btn" : "royal-btn-outline"
+                }`}
+              >
+                {t("allSections")}
+              </button>
+              {sections.map((sec) => (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => setSection(sec.slug)}
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold uppercase ${
+                    section === sec.slug ? "royal-btn" : "royal-btn-outline"
+                  }`}
+                >
+                  {sec.name}
+                </button>
+              ))}
+            </div>
+
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-sm font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+              className="royal-input py-1.5 text-xs"
             />
+          </div>
 
-            {user?.portalRole === "staff" && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => handleSelfAction("check_in")}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-bold text-white shadow-sm"
-                >
-                  <LogIn className="h-4 w-4" />
-                  <span>Check In</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelfAction("check_out")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2 text-sm font-bold text-slate-700 dark:text-slate-200 hover:border-blue-400"
-                >
-                  <LogOut className="h-4 w-4" />
-                  <span>Check Out</span>
-                </button>
-              </>
-            )}
+          {/* One-Click "Present" Attendance Board */}
+          {loading ? (
+            <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
+              ...
+            </div>
+          ) : records.length === 0 ? (
+            <div className="royal-card rounded-2xl p-12 text-center text-xs text-muted-royal">
+              {t("noRecords")}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {records.map((row) => {
+                const isPresent = row.status === "present";
+                const attMeta = ATTENDANCE_STATUS_META[row.status];
 
-            {!user && (
-              <Link
-                href="/portals"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm font-bold text-white"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                <span>Portal Login to Mark Attendance</span>
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {/* Summary KPI Strip */}
-        <div className="mt-6 grid grid-cols-2 sm:grid-cols-6 gap-3">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-[#F6F9FF] dark:bg-slate-900/70 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-slate-900 dark:text-white">
-              {summary.totalStaff}
-            </div>
-            <div className="text-xs font-semibold text-slate-500">Total Staff</div>
-          </div>
-          <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-500/10 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-300">
-              {summary.present}
-            </div>
-            <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              Present
-            </div>
-          </div>
-          <div className="rounded-2xl border border-amber-200/80 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">
-              {summary.late}
-            </div>
-            <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-              Late
-            </div>
-          </div>
-          <div className="rounded-2xl border border-indigo-200/80 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-500/10 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-indigo-700 dark:text-indigo-300">
-              {summary.onLeave + summary.halfDay}
-            </div>
-            <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-              Leave / Half
-            </div>
-          </div>
-          <div className="rounded-2xl border border-rose-200/80 dark:border-rose-500/30 bg-rose-50/60 dark:bg-rose-500/10 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-rose-700 dark:text-rose-300">
-              {summary.absent}
-            </div>
-            <div className="text-xs font-semibold text-rose-700 dark:text-rose-300">
-              Absent
-            </div>
-          </div>
-          <div className="rounded-2xl border border-blue-200/80 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-500/10 p-4 text-center">
-            <div className="text-2xl font-extrabold tabular-nums text-blue-700 dark:text-blue-300">
-              {summary.monthPresent + summary.monthLate}
-            </div>
-            <div className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-              Month Present
-            </div>
-          </div>
-        </div>
-
-        {/* Section Filter Tabs */}
-        <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setSection("all")}
-            className={`rounded-xl px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider ${
-              section === "all"
-                ? "bg-blue-600 text-white"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-            }`}
-          >
-            All Sections
-          </button>
-          {sections.map((sec) => (
-            <button
-              key={sec.id}
-              type="button"
-              onClick={() => setSection(sec.slug)}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider ${
-                section === sec.slug
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-              }`}
-            >
-              {sec.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Attendance Table */}
-      <div className="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#111C35] overflow-hidden shadow-xs">
-        {loading ? (
-          <div className="p-12 text-center text-sm text-slate-500">
-            Loading attendance records...
-          </div>
-        ) : records.length === 0 ? (
-          <div className="p-12 text-center">
-            <CalendarCheck2 className="mx-auto h-10 w-10 text-blue-500" />
-            <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">
-              No staff accounts added in this section yet
-            </h3>
-            <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Once IT CEO, BD CEO, or ERP Owner creates staff accounts, their
-              daily attendance rows appear automatically here.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 bg-[#F6F9FF] dark:bg-slate-900/70 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  <th className="py-3.5 px-5">Staff Member</th>
-                  <th className="py-3.5 px-4">Section</th>
-                  <th className="py-3.5 px-4">Live Status</th>
-                  <th className="py-3.5 px-4">Check In / Out</th>
-                  <th className="py-3.5 px-4">Attendance</th>
-                  <th className="py-3.5 px-5 text-right">Mark Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                {records.map((row) => {
-                  const attMeta = ATTENDANCE_STATUS_META[row.status];
-                  const stMeta = STAFF_STATUS_META[row.staffStatus];
-                  const editable = canMarkRow(row);
-
-                  return (
-                    <tr
-                      key={row.userId}
-                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors"
-                    >
-                      <td className="py-4 px-5">
-                        <div className="font-bold text-slate-900 dark:text-white">
+                return (
+                  <div
+                    key={row.userId}
+                    className="royal-card rounded-2xl p-5 flex items-center justify-between gap-4"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base font-bold truncate">
                           {row.userName}
-                        </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                          {row.jobTitle} · {row.userEmail}
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="rounded-lg bg-blue-50 dark:bg-blue-500/15 px-2.5 py-1 text-xs font-bold uppercase text-blue-700 dark:text-blue-300">
-                          {row.sectionName || row.sectionSlug || "—"}
                         </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${stMeta.pillClass}`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${stMeta.dotClass}`}
-                          />
-                          {stMeta.label}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-xs tabular-nums text-slate-600 dark:text-slate-300">
-                        In: {formatTimeShort(row.checkIn, settings.timezone)} ·
-                        Out: {formatTimeShort(row.checkOut, settings.timezone)}
-                      </td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${attMeta.pillClass}`}
-                        >
-                          {attMeta.label}
-                        </span>
-                      </td>
-                      <td className="py-4 px-5 text-right">
-                        {editable ? (
-                          <div className="inline-flex flex-wrap justify-end gap-1">
-                            {(
-                              [
-                                ["present", "Present"],
-                                ["late", "Late"],
-                                ["half_day", "Half"],
-                                ["on_leave", "Leave"],
-                                ["absent", "Absent"],
-                              ] as Array<[AttendanceStatus, string]>
-                            ).map(([code, label]) => (
-                              <button
-                                key={code}
-                                type="button"
-                                onClick={() => handleMarkStatus(row, code)}
-                                className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${
-                                  row.status === code
-                                    ? "bg-blue-600 text-white"
-                                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-slate-700"
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">
-                            {row.markedByName
-                              ? `By ${row.markedByName}`
-                              : "View only"}
+                        {row.sectionSlug && (
+                          <span className="rounded border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase gold-accent">
+                            {row.sectionName || row.sectionSlug}
                           </span>
                         )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <div className="text-xs text-muted-royal truncate">
+                        {row.jobTitle}
+                      </div>
+                      <div className="text-[11px] text-muted-royal tabular-nums">
+                        <span style={{ color: attMeta.color }}>
+                          {lang === "ur" ? attMeta.urduLabel : attMeta.label}
+                        </span>
+                        {row.checkIn &&
+                          ` · ${formatTimeShort(row.checkIn, settings.timezone)}`}
+                      </div>
+                    </div>
+
+                    {isPresent ? (
+                      <div className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3.5 py-2 text-xs font-bold text-emerald-400">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>{t("present")}</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleClickPresent(row)}
+                        className="royal-btn shrink-0 rounded-xl px-4 py-2.5 text-xs font-bold"
+                      >
+                        {t("present")}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Leave Submission + CEO / ERP Owner Approval Queue */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <form
+            onSubmit={handleSubmitLeave}
+            className="lg:col-span-5 royal-card rounded-2xl p-6 space-y-4"
+          >
+            <h2 className="text-base font-bold border-b border-[var(--border-subtle)] pb-3">
+              {t("submitLeave")}
+            </h2>
+
+            {user?.portalRole !== "staff" && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                  {t("staff")} *
+                </label>
+                <select
+                  required
+                  value={leaveUserId}
+                  onChange={(e) => setLeaveUserId(e.target.value)}
+                  className="royal-input w-full"
+                >
+                  {records.length === 0 ? (
+                    <option value="">{t("noRecords")}</option>
+                  ) : (
+                    records.map((r) => (
+                      <option key={r.userId} value={r.userId}>
+                        {r.userName} ({(r.sectionSlug || "").toUpperCase()})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                {t("leaveType")}
+              </label>
+              <select
+                value={leaveType}
+                onChange={(e) => setLeaveType(e.target.value)}
+                className="royal-input w-full"
+              >
+                {LEAVE_TYPES.map((lt) => (
+                  <option key={lt} value={lt}>
+                    {lt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                  {t("startDate")}
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="royal-input w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                  {t("endDate")}
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="royal-input w-full"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-royal mb-1.5">
+                {t("reason")} *
+              </label>
+              <textarea
+                rows={3}
+                required
+                placeholder="..."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="royal-input w-full"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={submittingLeave}
+              className="royal-btn w-full rounded-xl py-2.5 text-sm inline-flex items-center justify-center gap-2"
+            >
+              <Send className="h-4 w-4" />
+              <span>{submittingLeave ? "..." : t("submitLeave")}</span>
+            </button>
+          </form>
+
+          {/* Leave Requests List & Approval Controls */}
+          <div className="lg:col-span-7 space-y-3">
+            {leaves.length === 0 ? (
+              <div className="royal-card rounded-2xl p-10 text-center text-xs text-muted-royal">
+                {t("noRecords")}
+              </div>
+            ) : (
+              leaves.map((lv) => (
+                <div
+                  key={lv.id}
+                  className="royal-card rounded-2xl p-5 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-bold text-base">{lv.userName}</span>
+                      {lv.sectionSlug && (
+                        <span className="rounded border border-[var(--border-subtle)] px-2 py-0.5 text-[10px] font-bold uppercase gold-accent">
+                          {lv.sectionSlug}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-royal">
+                        {lv.leaveType}
+                      </span>
+                    </div>
+
+                    <span
+                      className={`rounded-lg px-2.5 py-1 text-xs font-bold uppercase ${
+                        lv.status === "approved"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : lv.status === "rejected"
+                          ? "bg-rose-500/15 text-rose-400"
+                          : "bg-amber-500/15 text-amber-300"
+                      }`}
+                    >
+                      {lv.status === "approved"
+                        ? t("approved")
+                        : lv.status === "rejected"
+                        ? t("rejected")
+                        : t("pending")}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-muted-royal tabular-nums">
+                    {lv.startDate} → {lv.endDate}
+                  </div>
+
+                  <p className="royal-elevated rounded-xl px-3.5 py-2.5 text-sm">
+                    {lv.reason}
+                  </p>
+
+                  {lv.status === "pending" && canReviewLeave(lv) && (
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleLeaveDecision(lv, "approved")}
+                        className="royal-btn rounded-xl px-4 py-1.5 text-xs inline-flex items-center gap-1"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        <span>{t("approve")}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleLeaveDecision(lv, "rejected")}
+                        className="royal-btn-outline rounded-xl px-4 py-1.5 text-xs text-rose-400 inline-flex items-center gap-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        <span>{t("reject")}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

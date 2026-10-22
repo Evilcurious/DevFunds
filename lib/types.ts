@@ -9,14 +9,54 @@ export type AttendanceStatus =
   | "on_leave"
   | "absent";
 
+export type LeaveStatus = "pending" | "approved" | "rejected";
+
+export type TaskPriority = "normal" | "high" | "urgent";
+
+export type TaskStatus = "pending" | "in_progress" | "completed";
+
 export type CurrencyCode = "PKR" | "USD" | "AED" | "GBP" | "EUR";
+
+export type LanguageCode = "en" | "ur";
+
+export type ThemePresetId =
+  | "imperial_sapphire"
+  | "ivory_sovereign"
+  | "obsidian_gold"
+  | "emerald_dynasty"
+  | "burgundy_crown"
+  | "pearl_platinum"
+  | "amethyst_regency"
+  | "custom";
+
+export interface CustomThemePalette {
+  bgCanvas: string;
+  bgSurface: string;
+  bgElevated: string;
+  borderSubtle: string;
+  accentPrimary: string;
+  accentSecondary: string;
+  textPrimary: string;
+  textMuted: string;
+}
+
+export interface UploadedFont {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
 
 export interface AppSettings {
   companyName: string;
-  tagline: string;
+  logoUrl: string;
   currency: CurrencyCode;
   timezone: string;
-  showSetupHint: boolean;
+  language: LanguageCode;
+  themeId: ThemePresetId;
+  customTheme: CustomThemePalette;
+  textColorOverride: string;
+  fontId: string;
+  customFonts: UploadedFont[];
 }
 
 export interface SectionRecord {
@@ -104,6 +144,51 @@ export interface AttendanceRecord {
   note: string;
   markedByName: string | null;
   updatedAt: string | null;
+}
+
+export interface LeaveRequestRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  sectionSlug: string | null;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: LeaveStatus;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface TaskRecord {
+  id: string;
+  sectionSlug: "bd" | "it";
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  dueDate: string | null;
+  referenceLink: string;
+  completionNote: string;
+  assignedToId: string;
+  assignedToName: string;
+  assignedById: string | null;
+  assignedByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationRecord {
+  id: string;
+  recipientId: string;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  isRead: boolean;
+  createdAt: string;
 }
 
 export interface AuditLogRecord {

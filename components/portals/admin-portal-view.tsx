@@ -414,17 +414,23 @@ export function AdminPortalView() {
                       </p>
                     )}
 
-                    {tk.submissionLink && (
-                      <a
-                        href={tk.submissionLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs gold-accent hover:underline font-bold"
-                      >
-                        <span>View Submitted Work</span>
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    )}
+                    {/* Each member's own delivered work link */}
+                    {tk.assignees
+                      .filter((m) => m.submissionLink)
+                      .map((m) => (
+                        <a
+                          key={m.userId}
+                          href={m.submissionLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs gold-accent hover:underline font-bold"
+                        >
+                          <span>
+                            {m.name}: View Submitted Work
+                          </span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ))}
 
                     {tk.status !== "completed" &&
                       tk.assignees.length > 0 &&

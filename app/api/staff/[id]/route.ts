@@ -7,7 +7,8 @@ import {
 } from "@/lib/auth";
 import { ensureBootstrapped } from "@/lib/bootstrap";
 import { one, rawQuery, toNum } from "@/lib/db";
-import { mapTaskRow, mapUserRow } from "@/lib/mappers";
+import { mapUserRow } from "@/lib/mappers";
+import { loadTasks } from "@/lib/tasks";
 import type { PortalRole, StaffStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,14 +35,15 @@ export async function GET(
     `SELECT u.*,
             s.name AS section_name,
             (SELECT COUNT(*)::int
-             FROM df_tasks tk
-             WHERE tk.assigned_to_id = u.id
-               AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
+             FROM df_task_assignees tas
+             JOIN df_tasks tk ON tk.id = tas.task_id
+             WHERE tas.user_id = u.id
+               AND (tas.accepted_at IS NOT NULL OR tas.status IN ('working', 'submitted', 'completed'))
             ) AS accepted_tasks_count,
             (SELECT COUNT(*)::int
-             FROM df_tasks tk2
-             WHERE tk2.assigned_to_id = u.id
-               AND tk2.status IN ('submitted', 'completed')
+             FROM df_task_assignees tas2
+             WHERE tas2.user_id = u.id
+               AND tas2.status IN ('submitted', 'completed')
             ) AS completed_tasks_count,
             (SELECT COUNT(*)::int
              FROM df_attendance att
@@ -69,12 +71,14 @@ export async function GET(
   }
 
   const [taskRows, attendanceRows] = await Promise.all([
-    rawQuery<Record<string, unknown>>(
-      `SELECT * FROM df_tasks
-       WHERE assigned_to_id = $1
-       ORDER BY updated_at DESC
-       LIMIT 20`,
-      [id]
+    loadTasks(
+      `WHERE EXISTS (
+         SELECT 1 FROM df_task_assignees ta
+         WHERE ta.task_id = t.id AND ta.user_id = $1
+       )`,
+      [id],
+      id,
+      { orderBy: "ORDER BY t.updated_at DESC", limit: 20 }
     ),
     rawQuery<Record<string, unknown>>(
       `SELECT work_date, status, check_in, check_out, marked_by_name
@@ -88,7 +92,7 @@ export async function GET(
 
   return jsonNoStore({
     profile: mapUserRow(userRow),
-    tasks: taskRows.map(mapTaskRow),
+    tasks: taskRows,
     attendanceHistory: attendanceRows.map((r) => ({
       workDate: String(r.work_date),
       status: String(r.status),

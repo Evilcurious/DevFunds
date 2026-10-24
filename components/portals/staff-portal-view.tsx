@@ -47,6 +47,8 @@ export function StaffPortalView() {
   );
   const [leaveReason, setLeaveReason] = useState("");
   const [todayPresent, setTodayPresent] = useState(false);
+  const [myCheckIn, setMyCheckIn] = useState<string | null>(null);
+  const [myAttendanceRate, setMyAttendanceRate] = useState(0);
 
   // Submit work inline inputs
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
@@ -71,10 +73,13 @@ export function StaffPortalView() {
     }
     if (attRes.ok && user) {
       const json = await attRes.json();
-      const me = (json.records ?? []).find(
-        (r: { userId: string; status: string }) => r.userId === user.id
-      );
-      setTodayPresent(me?.status === "present");
+      const me =
+        (json.records ?? []).find(
+          (r: { userId: string; status: string }) => r.userId === user.id
+        ) ?? json.me;
+      setTodayPresent(me?.status === "present" || me?.status === "late");
+      setMyCheckIn(me?.checkIn ?? null);
+      setMyAttendanceRate(me?.attendanceRate ?? 0);
     }
   }, [user]);
 
@@ -274,9 +279,18 @@ export function StaffPortalView() {
                     )}
 
                   {todayPresent ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3.5 py-1.5 text-xs font-bold text-emerald-400">
+                    <span className="attendance-glow-name inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3.5 py-1.5 text-xs font-bold text-emerald-400">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {t("present")}
+                      {myCheckIn
+                        ? ` · ${new Date(myCheckIn).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}`
+                        : ""}
+                      <span className="text-[10px] text-muted-royal normal-case">
+                        {myAttendanceRate}%
+                      </span>
                     </span>
                   ) : (
                     <button
@@ -297,6 +311,9 @@ export function StaffPortalView() {
               ) : (
                 <div className="space-y-3.5">
                   {inboxTasks.map((task) => (
+                    (() => {
+                      const myStatus = task.viewerStatus ?? task.status;
+                      return (
                     <div
                       key={task.id}
                       className="royal-elevated rounded-xl p-4 space-y-3"
@@ -319,13 +336,23 @@ export function StaffPortalView() {
                         </div>
 
                         <span className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-0.5 text-xs font-bold uppercase">
-                          {task.status}
+                          {myStatus}
+                          {task.assignees.length > 1
+                            ? ` · ${task.completedCount}/${task.assignees.length}`
+                            : ""}
                         </span>
                       </div>
 
                       {task.description && (
                         <p className="text-xs sm:text-sm text-muted-royal whitespace-pre-line">
                           {task.description}
+                        </p>
+                      )}
+
+                      {task.assignees.length > 1 && (
+                        <p className="text-[11px] text-muted-royal">
+                          {t("sharedWith")} {task.assignees.length}:{" "}
+                          {task.assignees.map((a) => a.name).join(", ")}
                         </p>
                       )}
 
@@ -343,7 +370,7 @@ export function StaffPortalView() {
 
                       {/* Select Task OR Submit Work to CEO */}
                       <div className="pt-2 border-t border-[var(--border-subtle)]">
-                        {task.status === "pending" && (
+                        {myStatus === "pending" && (
                           <button
                             type="button"
                             onClick={() => handleSelectTask(task)}
@@ -354,7 +381,7 @@ export function StaffPortalView() {
                           </button>
                         )}
 
-                        {task.status === "working" &&
+                        {myStatus === "working" &&
                           (submittingTaskId === task.id ? (
                             <div className="space-y-2.5">
                               <input
@@ -423,10 +450,9 @@ export function StaffPortalView() {
                             </button>
                           ))}
 
-                        {(task.status === "submitted" ||
-                          task.status === "completed") && (
+                        {(myStatus === "submitted" || myStatus === "completed") && (
                           <div className="text-xs text-emerald-400 font-semibold">
-                            ✓ {task.status.toUpperCase()}
+                            ✓ {myStatus.toUpperCase()}
                             {task.submissionLink
                               ? ` · ${task.submissionLink}`
                               : ""}
@@ -434,6 +460,8 @@ export function StaffPortalView() {
                         )}
                       </div>
                     </div>
+                      );
+                    })()
                   ))}
                 </div>
               )}

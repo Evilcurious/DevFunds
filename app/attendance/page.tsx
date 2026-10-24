@@ -1,13 +1,16 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Check,
   CheckCircle2,
   Crown,
   History,
+  Lock,
   Send,
+  ShieldCheck,
+  Undo2,
   X,
 } from "lucide-react";
 import { useApp } from "@/components/app-context";
@@ -36,6 +39,12 @@ export default function AttendancePage() {
     todayInTimezone(settings.timezone)
   );
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  // The signed-in viewer's own row (the ERP Owner is not listed on the board)
+  const [meRecord, setMeRecord] = useState<AttendanceRecord | null>(null);
+  // Active work day reported by the server (4:00 AM cycle) — self-marking only!
+  const [serverToday, setServerToday] = useState<string>(() =>
+    todayInTimezone(settings.timezone)
+  );
   const [leaves, setLeaves] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingUserId, setMarkingUserId] = useState<string | null>(null);
@@ -71,6 +80,8 @@ export default function AttendancePage() {
         const json = await res.json();
         const list: AttendanceRecord[] = json.records ?? [];
         setRecords(list);
+        setMeRecord(json.me ?? null);
+        if (typeof json.today === "string") setServerToday(json.today);
         setLeaves(json.leaves ?? []);
         if (user && list.some((r) => r.userId === user.id)) {
           setLeaveUserId(user.id);
@@ -96,17 +107,25 @@ export default function AttendancePage() {
     return () => clearInterval(interval);
   }, [settings.timezone]);
 
-  // One-click "Present" handler — instant optimistic glow + permanent DB save!
-  const handleMarkPresent = async (row: AttendanceRecord) => {
-    setMarkingUserId(row.userId);
-    // Instant optimistic UI glow update
+  // ── ATTENDANCE IS SELF-MARKED ONLY: nobody can mark anyone else ──────────
+  const myRecord =
+    records.find((r) => r.userId === user?.id) || meRecord || null;
+  const isTodayView = date === serverToday;
+
+  const markMyAttendance = async (status: AttendanceStatus) => {
+    if (!user) return;
+    setMarkingUserId(user.id);
     setRecords((prev) =>
       prev.map((item) =>
-        item.userId === row.userId
+        item.userId === user.id
           ? {
               ...item,
-              status: "present",
-              checkIn: item.checkIn || new Date().toISOString(),
+              status,
+              checkIn:
+                item.checkIn ||
+                (status === "present" || status === "late" || status === "half_day"
+                  ? new Date().toISOString()
+                  : item.checkIn),
             }
           : item
       )
@@ -117,21 +136,39 @@ export default function AttendancePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "present",
-          userId: row.userId,
+          action: "mark",
+          userId: user.id,
+          status,
           workDate: date,
         }),
       });
       if (res.ok) {
-        toast(`${row.userName} — ${t("present")}!`);
-        loadData();
+        toast(`${user.name} — ${status === "present" ? t("present") : status}!`);
       } else {
         const err = await res.json().catch(() => ({}));
         toast(err.error || "Unable to mark attendance", "error");
-        loadData();
       }
+      loadData();
     } finally {
       setMarkingUserId(null);
+    }
+  };
+
+  const clearMyMark = async () => {
+    if (!user) return;
+    setMarkingUserId(user.id);
+    const res = await fetch("/api/attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "undo", userId: user.id, workDate: date }),
+    });
+    setMarkingUserId(null);
+    if (res.ok) {
+      toast(t("clearMyMark"));
+      loadData();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error || "Unable to clear", "error");
     }
   };
 
@@ -204,6 +241,21 @@ export default function AttendancePage() {
     }
   };
 
+  // A CEO may only file leave for their own department; staff only themselves.
+  const leaveTargets = useMemo(() => {
+    if (!user) return records;
+    if (user.portalRole === "erp_owner") return records;
+    const dept =
+      user.portalRole === "it_ceo"
+        ? "it"
+        : user.portalRole === "bd_ceo"
+        ? "bd"
+        : user.sectionSlug;
+    return records.filter(
+      (r) => r.userId === user.id || (dept && r.sectionSlug === dept)
+    );
+  }, [records, user]);
+
   // Split cleanly into the 2 sections: IT Team (IT CEO + IT staff) & BD Team (BD CEO + BD staff)
   const itTeam = records.filter((r) => r.sectionSlug === "it");
   const bdTeam = records.filter((r) => r.sectionSlug === "bd");
@@ -212,8 +264,12 @@ export default function AttendancePage() {
   );
 
   const renderMemberRow = (row: AttendanceRecord) => {
+    const hasMark = row.status !== "unmarked";
     const isMarked = row.status === "present" || row.status === "late";
     const isCeo = row.portalRole === "it_ceo" || row.portalRole === "bd_ceo";
+    const isSelf = row.userId === user?.id;
+    const marking = markingUserId === row.userId;
+    const meta = ATTENDANCE_STATUS_META[row.status];
 
     return (
       <div
@@ -247,6 +303,11 @@ export default function AttendancePage() {
               >
                 {row.userName}
               </span>
+              {isSelf && (
+                <span className="rounded border border-[var(--accent-secondary)] px-1.5 text-[9px] font-black uppercase gold-accent">
+                  {t("you")}
+                </span>
+              )}
               {isCeo && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-[var(--accent-secondary)] px-2 py-0.5 text-[10px] font-extrabold uppercase gold-accent">
                   <Crown className="h-2.5 w-2.5" />
@@ -264,43 +325,88 @@ export default function AttendancePage() {
           </div>
         </Link>
 
-        {/* Right Controls: Mark Present OR Click Marked Badge to Inspect Full History */}
+        {/* Right controls: only the account holder can mark their own day */}
         <div className="flex items-center gap-2 shrink-0">
-          {isMarked ? (
-            <button
-              type="button"
-              onClick={() => openAttendanceHistory(row)}
-              title="Click to view attendance stats & history"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400/50 bg-emerald-500/15 px-3.5 py-2 text-xs font-extrabold text-emerald-300 shadow-xs hover:bg-emerald-500/25 transition-all"
-            >
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span>
-                {t("present")}
-                {row.checkIn
-                  ? ` · ${formatTimeShort(row.checkIn, settings.timezone)}`
-                  : ""}
-              </span>
-            </button>
-          ) : (
+          {hasMark ? (
             <>
               <button
                 type="button"
-                disabled={markingUserId === row.userId}
-                onClick={() => handleMarkPresent(row)}
+                onClick={() => openAttendanceHistory(row)}
+                title="Click to view attendance stats & history"
+                style={
+                  isMarked
+                    ? undefined
+                    : {
+                        borderColor: `${meta.color}66`,
+                        color: meta.color,
+                        background: `${meta.color}1a`,
+                      }
+                }
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-extrabold transition-all ${
+                  isMarked
+                    ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                    : ""
+                }`}
+              >
+                <CheckCircle2
+                  className={`h-4 w-4 ${isMarked ? "text-emerald-400" : ""}`}
+                />
+                <span>
+                  {lang === "ur" ? meta.urduLabel : meta.label}
+                  {row.checkIn
+                    ? ` · ${formatTimeShort(row.checkIn, settings.timezone)}`
+                    : ""}
+                </span>
+              </button>
+              {isSelf && isTodayView && (
+                <button
+                  type="button"
+                  disabled={marking}
+                  onClick={clearMyMark}
+                  title="Clear my mark for today"
+                  className="royal-btn-outline rounded-xl p-2 text-rose-400"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </button>
+              )}
+            </>
+          ) : isSelf && isTodayView ? (
+            <>
+              <button
+                type="button"
+                disabled={marking}
+                onClick={() => markMyAttendance("present")}
                 className="royal-btn rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-60"
               >
-                {markingUserId === row.userId ? "..." : t("present")}
+                {marking ? "..." : t("present")}
               </button>
               <button
                 type="button"
-                onClick={() => openAttendanceHistory(row)}
-                title="Attendance History"
-                className="royal-btn-outline rounded-xl p-2"
+                disabled={marking}
+                onClick={() => markMyAttendance("late")}
+                className="royal-btn-outline rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-60"
               >
-                <History className="h-4 w-4 text-muted-royal" />
+                {lang === "ur" ? ATTENDANCE_STATUS_META.late.urduLabel : "Late"}
               </button>
             </>
+          ) : (
+            <span
+              title={t("selfMarkHint")}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-[11px] font-bold text-muted-royal"
+            >
+              <Lock className="h-3.5 w-3.5" />
+              <span>{t("selfMarkOnly")}</span>
+            </span>
           )}
+
+          <button
+            type="button"
+            onClick={() => openAttendanceHistory(row)}
+            title="Attendance History"
+            className="royal-btn-outline rounded-xl p-2"
+          >
+            <History className="h-4 w-4 text-muted-royal" />
+          </button>
         </div>
       </div>
     );
@@ -320,6 +426,10 @@ export default function AttendancePage() {
             </span>
           </div>
           <div className="gold-line w-28" />
+          <p className="text-xs text-muted-royal inline-flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+            {t("selfMarkHint")}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -359,6 +469,72 @@ export default function AttendancePage() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* My attendance quick action */}
+            {user && (
+              <div className="royal-card rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <UserAvatar
+                    name={user.name}
+                    avatarUrl={user.avatarUrl}
+                    size="sm"
+                    glowing={myRecord?.status === "present" || myRecord?.status === "late"}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-extrabold">
+                      {t("myAttendance")} · {date}
+                    </div>
+                    <div className="text-xs text-muted-royal">
+                      {myRecord
+                        ? ATTENDANCE_STATUS_META[myRecord.status].label
+                        : ATTENDANCE_STATUS_META.unmarked.label}
+                      {myRecord?.checkIn
+                        ? ` · ${formatTimeShort(myRecord.checkIn, settings.timezone)}`
+                        : ""}
+                    </div>
+                  </div>
+                </div>
+
+                {isTodayView ? (
+                  myRecord?.status === "present" || myRecord?.status === "late" ? (
+                    <button
+                      type="button"
+                      onClick={clearMyMark}
+                      className="royal-btn-outline rounded-xl px-4 py-2 text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                      <span>{t("clearMyMark")}</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={markingUserId === user.id}
+                        onClick={() => markMyAttendance("present")}
+                        className="royal-btn rounded-xl px-5 py-2 text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>{t("myAttendance")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={markingUserId === user.id}
+                        onClick={() => markMyAttendance("late")}
+                        className="royal-btn-outline rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-60"
+                      >
+                        {lang === "ur"
+                          ? ATTENDANCE_STATUS_META.late.urduLabel
+                          : ATTENDANCE_STATUS_META.late.label}
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <span className="text-[11px] font-bold uppercase text-muted-royal">
+                    Closed · {t("markAttendance")} only for {serverToday}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* THE 2 TEAM SECTIONS: IT TEAM & BD TEAM */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
               {/* Section 1: IT Team */}
@@ -458,12 +634,16 @@ export default function AttendancePage() {
                   onChange={(e) => setLeaveUserId(e.target.value)}
                   className="royal-input w-full"
                 >
-                  {records.map((r) => (
+                  {leaveTargets.map((r) => (
                     <option key={r.userId} value={r.userId}>
                       {r.userName} ({(r.sectionSlug || "").toUpperCase()})
                     </option>
                   ))}
                 </select>
+                <p className="mt-1.5 text-[11px] text-muted-royal">
+                  Leave can only be filed for your own account or your own
+                  department members.
+                </p>
               </div>
             )}
 

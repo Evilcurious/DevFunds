@@ -77,7 +77,7 @@ export function AdminPortalView() {
     setLoading(true);
     try {
       const spendQuery = deptSlug ? `?section=${deptSlug}` : "";
-      const taskQuery = deptSlug ? `?section=${deptSlug}` : "";
+      const taskQuery = deptSlug ? `?dept=${deptSlug}` : "";
       const [spRes, eaRes, stRes, lvRes, tkRes] = await Promise.all([
         fetch(`/api/spending${spendQuery}`, { cache: "no-store" }),
         fetch("/api/earnings", { cache: "no-store" }),
@@ -128,8 +128,16 @@ export function AdminPortalView() {
 
   if (!user) return null;
 
+  const incomingRequests = tasks.filter(
+    (tk) =>
+      tk.requestKind === "cross" &&
+      tk.requestStatus === "pending" &&
+      (deptSlug === null || tk.sectionSlug === deptSlug)
+  );
+
   const pendingActionCount =
     leaves.filter((l) => l.status === "pending").length +
+    incomingRequests.length +
     tasks.filter((tk) => tk.status === "submitted").length;
 
   const handleLeaveDecision = async (
@@ -162,7 +170,9 @@ export function AdminPortalView() {
     });
     if (res.ok) {
       toast(
-        `Approved & set ${tk.assignedToName} → ${STAFF_STATUS_META[nextStaffStatus].label}`
+        `Approved ${tk.assignees.length || 1} member${
+          tk.assignees.length === 1 ? "" : "s"
+        } → ${STAFF_STATUS_META[nextStaffStatus].label}`
       );
       loadWorkspace();
     }
@@ -350,12 +360,37 @@ export function AdminPortalView() {
                     className="royal-elevated rounded-xl p-4 space-y-2.5"
                   >
                     <div className="flex items-center justify-between text-xs">
-                      <Link
-                        href={`/staff/${tk.assignedToId}`}
-                        className="gold-accent font-bold hover:underline"
-                      >
-                        {tk.sectionSlug.toUpperCase()} · {tk.assignedToName}
-                      </Link>
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        {tk.requestKind === "cross" && (
+                          <span className="rounded border border-[var(--accent-secondary)] px-1.5 py-0.5 text-[9px] font-black uppercase gold-accent shrink-0">
+                            {tk.originSection.toUpperCase()} → {tk.sectionSlug.toUpperCase()}
+                          </span>
+                        )}
+                        {tk.assignees.length > 0 ? (
+                          tk.assignees.map((m) => (
+                            <Link
+                              key={m.userId}
+                              href={`/staff/${m.userId}`}
+                              className={`gold-accent font-bold hover:underline truncate ${
+                                m.status === "completed" ? "attendance-glow-name" : ""
+                              }`}
+                            >
+                              {m.name}
+                            </Link>
+                          ))
+                        ) : (
+                          <span className="text-muted-royal italic">
+                            {tk.requestStatus === "pending"
+                              ? t("awaitingCeo")
+                              : t("noAssignees")}
+                          </span>
+                        )}
+                        {tk.assignees.length > 1 && (
+                          <span className="text-muted-royal tabular-nums shrink-0">
+                            {tk.completedCount}/{tk.assignees.length}
+                          </span>
+                        )}
+                      </span>
                       <span
                         className={`font-bold uppercase ${
                           tk.status === "completed"
@@ -391,7 +426,9 @@ export function AdminPortalView() {
                       </a>
                     )}
 
-                    {tk.status !== "completed" && (
+                    {tk.status !== "completed" &&
+                      tk.assignees.length > 0 &&
+                      tk.requestStatus !== "pending" && (
                       <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
                         <button
                           type="button"
@@ -414,8 +451,26 @@ export function AdminPortalView() {
                         >
                           Approve → Offline
                         </button>
+                        <Link
+                          href="/todo"
+                          className="royal-btn-outline rounded-lg px-2.5 py-1 text-xs"
+                        >
+                          {t("todo")}
+                        </Link>
                       </div>
                     )}
+
+                    {tk.requestStatus === "pending" &&
+                      (deptSlug === null || tk.sectionSlug === deptSlug) && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
+                          <Link
+                            href="/todo"
+                            className="royal-btn rounded-lg px-2.5 py-1 text-xs"
+                          >
+                            {t("acceptRequest")}
+                          </Link>
+                        </div>
+                      )}
                   </div>
                 ))}
               </div>

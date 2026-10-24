@@ -15,6 +15,25 @@ export type TaskPriority = "normal" | "high" | "urgent";
 
 export type TaskStatus = "pending" | "working" | "submitted" | "completed";
 
+export type TaskRequestKind = "direct" | "cross";
+
+export type TaskRequestStatus = "none" | "pending" | "accepted" | "declined";
+
+export interface TaskAssigneeRecord {
+  userId: string;
+  name: string;
+  avatarUrl: string;
+  jobTitle: string;
+  sectionSlug: string | null;
+  status: TaskStatus;
+  acceptedAt: string | null;
+  submittedAt: string | null;
+  submissionLink: string;
+  completionNote: string;
+  reviewedByName: string;
+  updatedAt: string;
+}
+
 export type CurrencyCode = "PKR" | "USD" | "AED" | "GBP" | "EUR";
 
 export type LanguageCode = "en" | "ur";
@@ -152,6 +171,7 @@ export interface AttendanceRecord {
   checkIn: string | null;
   checkOut: string | null;
   note: string;
+  markedById: string | null;
   markedByName: string | null;
   updatedAt: string | null;
 }
@@ -189,8 +209,27 @@ export interface TaskRecord {
   assignedToName: string;
   assignedById: string | null;
   assignedByName: string;
+  // Multi-assignee support: one work item can be shared with many team members
+  assignees: TaskAssigneeRecord[];
+  completedCount: number;
+  submittedCount: number;
+  viewerIsAssignee: boolean;
+  viewerStatus: TaskStatus | null;
+  // Cross-CEO request flow (BD CEO ⇄ IT CEO)
+  requestKind: TaskRequestKind;
+  requestStatus: TaskRequestStatus;
+  originSection: string;
+  requestedToRole: string;
+  acceptedByName: string;
+  declineReason: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Task enriched for the signed-in viewer (their own progress row on that task). */
+export interface ViewerTaskRecord extends TaskRecord {
+  viewerIsAssignee: boolean;
+  viewerStatus: TaskStatus | null;
 }
 
 export interface NotificationRecord {

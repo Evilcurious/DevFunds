@@ -39,14 +39,15 @@ export async function GET(request: Request) {
            a.check_in AS today_check_in,
            a.check_out AS today_check_out,
            (SELECT COUNT(*)::int
-            FROM df_tasks tk
-            WHERE tk.assigned_to_id = u.id
-              AND (tk.accepted_at IS NOT NULL OR tk.status IN ('working', 'submitted', 'completed'))
+            FROM df_task_assignees tas
+            JOIN df_tasks tk ON tk.id = tas.task_id
+            WHERE tas.user_id = u.id
+              AND (tas.accepted_at IS NOT NULL OR tas.status IN ('working', 'submitted', 'completed'))
            ) AS accepted_tasks_count,
            (SELECT COUNT(*)::int
-            FROM df_tasks tk2
-            WHERE tk2.assigned_to_id = u.id
-              AND tk2.status IN ('submitted', 'completed')
+            FROM df_task_assignees tas2
+            WHERE tas2.user_id = u.id
+              AND tas2.status IN ('submitted', 'completed')
            ) AS completed_tasks_count,
            (SELECT COUNT(*)::int
             FROM df_attendance att

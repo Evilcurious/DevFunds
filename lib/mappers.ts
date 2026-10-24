@@ -11,6 +11,7 @@ import type {
   SectionRecord,
   SpendingRecord,
   StaffStatus,
+  TaskAssigneeRecord,
   TaskPriority,
   TaskRecord,
   TaskStatus,
@@ -188,6 +189,7 @@ export function mapAttendanceRow(
     checkIn: row.check_in ? toIso(row.check_in) : null,
     checkOut: row.check_out ? toIso(row.check_out) : null,
     note: String(row.note ?? ""),
+    markedById: row.marked_by_id ? String(row.marked_by_id) : null,
     markedByName: row.marked_by_name ? String(row.marked_by_name) : null,
     updatedAt: row.attendance_updated_at
       ? toIso(row.attendance_updated_at)
@@ -213,24 +215,90 @@ export function mapLeaveRow(row: Record<string, unknown>): LeaveRequestRecord {
   };
 }
 
-export function mapTaskRow(row: Record<string, unknown>): TaskRecord {
+export function mapTaskAssigneeRow(
+  row: Record<string, unknown>
+): TaskAssigneeRecord {
+  return {
+    userId: String(row.user_id),
+    name: String(row.name ?? ""),
+    avatarUrl: String(row.avatar_url ?? ""),
+    jobTitle: String(row.job_title ?? ""),
+    sectionSlug: row.section_slug ? String(row.section_slug) : null,
+    status: normalizeTaskStatus(row.status),
+    acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null,
+    submittedAt: row.submitted_at ? toIso(row.submitted_at) : null,
+    submissionLink: String(row.submission_link ?? ""),
+    completionNote: String(row.completion_note ?? ""),
+    reviewedByName: String(row.reviewed_by_name ?? ""),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+/** Roll a task's overall status up from every member assignment row. */
+export function rollupTaskStatus(statuses: TaskStatus[]): TaskStatus {
+  if (statuses.length === 0) return "pending";
+  if (statuses.every((s) => s === "completed")) return "completed";
+  if (statuses.some((s) => s === "submitted")) return "submitted";
+  if (statuses.some((s) => s === "working")) return "working";
+  return "pending";
+}
+
+export function mapTaskRow(
+  row: Record<string, unknown>,
+  assigneeRows: Record<string, unknown>[] = [],
+  viewerId: string | null = null
+): TaskRecord {
+  const assignees = assigneeRows.map(mapTaskAssigneeRow);
+  const myRow = viewerId ? assignees.find((a) => a.userId === viewerId) : null;
+
+  const assigneeNames = assignees.map((a) => a.name).filter(Boolean);
+  const legacyName = String(row.assigned_to_name ?? "");
+  const displayNames =
+    assigneeNames.length > 0
+      ? assigneeNames.join(", ")
+      : legacyName || "Unassigned";
+
   return {
     id: String(row.id),
     sectionSlug: String(row.section_slug) === "bd" ? "bd" : "it",
     title: String(row.title),
     description: String(row.description ?? ""),
     priority: (row.priority as TaskPriority) || "normal",
-    status: normalizeTaskStatus(row.status),
+    status: rollupTaskStatus(assignees.map((a) => a.status)),
     dueDate: row.due_date ? String(row.due_date) : null,
     referenceLink: String(row.reference_link ?? ""),
-    submissionLink: String(row.submission_link ?? ""),
-    completionNote: String(row.completion_note ?? ""),
-    acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null,
-    submittedAt: row.submitted_at ? toIso(row.submitted_at) : null,
-    assignedToId: String(row.assigned_to_id),
-    assignedToName: String(row.assigned_to_name),
+    submissionLink: myRow
+      ? myRow.submissionLink
+      : assignees
+          .map((a) => a.submissionLink)
+          .filter(Boolean)
+          .join(" , "),
+    completionNote: myRow ? myRow.completionNote : "",
+    acceptedAt: myRow ? myRow.acceptedAt : row.accepted_at ? toIso(row.accepted_at) : null,
+    submittedAt: myRow
+      ? myRow.submittedAt
+      : row.submitted_at
+      ? toIso(row.submitted_at)
+      : null,
+    assignedToId: assignees[0]?.userId ?? String(row.assigned_to_id ?? ""),
+    assignedToName: displayNames,
     assignedById: row.assigned_by_id ? String(row.assigned_by_id) : null,
     assignedByName: String(row.assigned_by_name ?? "Admin"),
+    assignees,
+    completedCount: assignees.filter((a) => a.status === "completed").length,
+    submittedCount: assignees.filter((a) => a.status === "submitted").length,
+    viewerIsAssignee: Boolean(myRow),
+    viewerStatus: myRow ? myRow.status : null,
+    requestKind: row.request_kind === "cross" ? "cross" : "direct",
+    requestStatus: (["pending", "accepted", "declined"].includes(
+      String(row.request_status ?? "")
+    )
+      ? String(row.request_status)
+      : "none") as TaskRecord["requestStatus"],
+    originSection: String(row.origin_section ?? ""),
+    requestedToRole: String(row.requested_to_role ?? ""),
+    acceptedByName: String(row.accepted_by_name ?? ""),
+    declineReason: String(row.decline_reason ?? ""),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };

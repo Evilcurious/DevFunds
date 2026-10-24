@@ -148,6 +148,70 @@ const SCHEMA_STATEMENTS = [
     summary TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  // ── Cross-CEO request columns (BD CEO ⇄ IT CEO) ────────────────────────────
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS request_kind TEXT NOT NULL DEFAULT 'direct'`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS request_status TEXT NOT NULL DEFAULT 'none'`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS origin_section TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS requested_to_role TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS accepted_by_name TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS accepted_by_id TEXT`,
+  `ALTER TABLE df_tasks ADD COLUMN IF NOT EXISTS decline_reason TEXT NOT NULL DEFAULT ''`,
+  // One work item can now be shared with MANY team members → assignee FK is optional
+  `ALTER TABLE df_tasks ALTER COLUMN assigned_to_id DROP NOT NULL`,
+  `ALTER TABLE df_tasks ALTER COLUMN assigned_to_name SET DEFAULT ''`,
+
+  // ── Per-member assignment / progress rows so 1 task can be given to many staff ──
+  `CREATE TABLE IF NOT EXISTS df_task_assignees (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES df_tasks(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES df_users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'working', 'submitted', 'completed')),
+    accepted_at TIMESTAMPTZ,
+    submitted_at TIMESTAMPTZ,
+    submission_link TEXT NOT NULL DEFAULT '',
+    completion_note TEXT NOT NULL DEFAULT '',
+    reviewed_by_name TEXT NOT NULL DEFAULT '',
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (task_id, user_id)
+  )`,
+  // Backfill every legacy single-assignee task into the multi-assignee table
+  `INSERT INTO df_task_assignees (
+     id, task_id, user_id, status, accepted_at, submitted_at, submission_link, completion_note
+   )
+   SELECT 'tas_' || t.id, t.id, t.assigned_to_id, t.status, t.accepted_at, t.submitted_at,
+          t.submission_link, t.completion_note
+   FROM df_tasks t
+   WHERE t.assigned_to_id IS NOT NULL
+   ON CONFLICT (task_id, user_id) DO NOTHING`,
+  // Mirror legacy primary assignee from the assignment rows (keeps older reports accurate)
+  `UPDATE df_tasks t
+   SET assigned_to_id = agg.user_id,
+       assigned_to_name = agg.names
+   FROM (
+     SELECT ta.task_id,
+            MIN(ta.user_id) AS user_id,
+            string_agg(u.name::text, ', ' ORDER BY u.name) AS names
+     FROM df_task_assignees ta
+     JOIN df_users u ON u.id = ta.user_id
+     GROUP BY ta.task_id
+   ) agg
+   WHERE t.id = agg.task_id AND (t.assigned_to_id IS DISTINCT FROM agg.user_id)`,
+  `INSERT INTO df_notifications (id, recipient_id, kind, title, body, link)
+   SELECT 'ntf_seed_' || t.id || '_' || ta.user_id,
+          ta.user_id,
+          'task_assigned',
+          'Work Assigned (' || upper(t.section_slug) || ' Todo)',
+          'You were assigned: "' || t.title || '"',
+          '/portals'
+   FROM df_tasks t
+   JOIN df_task_assignees ta ON ta.task_id = t.id
+   WHERE ta.status = 'pending' AND t.request_kind = 'direct'
+     AND NOT EXISTS (
+       SELECT 1 FROM df_notifications n WHERE n.id = 'ntf_seed_' || t.id || '_' || ta.user_id
+     )`,
+
   `CREATE INDEX IF NOT EXISTS idx_df_users_section ON df_users(section_slug)`,
   `CREATE INDEX IF NOT EXISTS idx_df_users_role ON df_users(portal_role)`,
   `CREATE INDEX IF NOT EXISTS idx_df_spending_section ON df_spending(section_slug, spent_at DESC)`,
@@ -156,6 +220,9 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_df_leaves_status ON df_leave_requests(status, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_df_tasks_section ON df_tasks(section_slug, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_df_tasks_assignee ON df_tasks(assigned_to_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_task_assignees_user ON df_task_assignees(user_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_task_assignees_task ON df_task_assignees(task_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_df_tasks_origin ON df_tasks(origin_section, request_status)`,
   `CREATE INDEX IF NOT EXISTS idx_df_notifications_recipient ON df_notifications(recipient_id, is_read, created_at DESC)`,
 ];
 

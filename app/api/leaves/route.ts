@@ -79,6 +79,28 @@ export async function POST(request: Request) {
     return jsonNoStore({ error: "Staff member not found." }, 404);
   }
 
+  // Leave may only be filed by the account holder themselves, their own
+  // department CEO, or the ERP Owner — never by another team's member.
+  if (targetUserId !== sessionUser.id) {
+    const reviewerRole = sessionUser.portalRole;
+    const targetSection = userRow.section_slug
+      ? String(userRow.section_slug)
+      : null;
+    const allowed =
+      reviewerRole === "erp_owner" ||
+      (reviewerRole === "it_ceo" && targetSection === "it") ||
+      (reviewerRole === "bd_ceo" && targetSection === "bd");
+    if (!allowed) {
+      return jsonNoStore(
+        {
+          error:
+            "Only your own account (or your CEO / ERP Owner) can file a leave request for you.",
+        },
+        403
+      );
+    }
+  }
+
   const startDate = String(body.startDate ?? "").trim();
   const endDate = String(body.endDate || startDate).trim();
   const reason = String(body.reason ?? "").trim();

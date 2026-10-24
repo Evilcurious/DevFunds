@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  canManageStaffSection,
-  getSessionUser,
-  jsonNoStore,
-  logAudit,
-} from "@/lib/auth";
+import { getSessionUser, jsonNoStore, logAudit } from "@/lib/auth";
 import { ensureBootstrapped, getAppSettings } from "@/lib/bootstrap";
 import { one, rawQuery, toNum } from "@/lib/db";
 import { todayInTimezone } from "@/lib/format";
@@ -39,58 +34,73 @@ export async function GET(request: Request) {
   const workDate =
     dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
-  const [sectionRows, rows, monthAggRows, leaveRows] = await Promise.all([
+  // Shared roster query so the board and the viewer's own row stay identical.
+  const rosterSql = (whereClause: string, orderClause: string) => `
+    SELECT u.id AS user_id,
+           u.name AS user_name,
+           u.email AS user_email,
+           u.avatar_url,
+           u.portal_role,
+           u.job_title,
+           u.joined_at,
+           CASE
+             WHEN u.portal_role = 'it_ceo' THEN 'it'
+             WHEN u.portal_role = 'bd_ceo' THEN 'bd'
+             ELSE u.section_slug
+           END AS section_slug,
+           s.name AS section_name,
+           u.staff_status,
+           a.id AS attendance_id,
+           a.status AS attendance_status,
+           a.check_in,
+           a.check_out,
+           a.note,
+           a.marked_by_id,
+           a.marked_by_name,
+           a.updated_at AS attendance_updated_at,
+           (SELECT COUNT(*)::int
+            FROM df_attendance att
+            WHERE att.user_id = u.id
+              AND att.status IN ('present', 'late', 'half_day')
+           ) AS present_days_count,
+           (SELECT COUNT(*)::int
+            FROM df_attendance attL
+            WHERE attL.user_id = u.id
+              AND attL.status = 'on_leave'
+           ) AS leave_days_count,
+           (SELECT COUNT(*)::int
+            FROM df_attendance att2
+            WHERE att2.user_id = u.id
+              AND att2.status IN ('present', 'late', 'half_day', 'absent')
+           ) AS total_tracked_days
+    FROM df_users u
+    LEFT JOIN df_sections s ON s.slug = u.section_slug
+    LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
+    ${whereClause}
+    ${orderClause}`;
+
+  const [sectionRows, rows, meRow, monthAggRows, leaveRows] = await Promise.all([
     rawQuery<Record<string, unknown>>(
       `SELECT s.*,
               (SELECT COUNT(*)::int FROM df_users u WHERE u.portal_role = 'staff' AND u.section_slug = s.slug) AS staff_count
        FROM df_sections s
        ORDER BY s.sort_order ASC`
     ),
+    // The board itself = IT team + BD team (both CEOs included, listed first)
     rawQuery<Record<string, unknown>>(
-      `SELECT u.id AS user_id,
-              u.name AS user_name,
-              u.email AS user_email,
-              u.avatar_url,
-              u.portal_role,
-              u.job_title,
-              u.joined_at,
-              CASE
-                WHEN u.portal_role = 'it_ceo' THEN 'it'
-                WHEN u.portal_role = 'bd_ceo' THEN 'bd'
-                ELSE u.section_slug
-              END AS section_slug,
-              s.name AS section_name,
-              u.staff_status,
-              a.id AS attendance_id,
-              a.status AS attendance_status,
-              a.check_in,
-              a.check_out,
-              a.note,
-              a.marked_by_name,
-              a.updated_at AS attendance_updated_at,
-              (SELECT COUNT(*)::int
-               FROM df_attendance att
-               WHERE att.user_id = u.id
-                 AND att.status IN ('present', 'late', 'half_day')
-              ) AS present_days_count,
-              (SELECT COUNT(*)::int
-               FROM df_attendance attL
-               WHERE attL.user_id = u.id
-                 AND attL.status = 'on_leave'
-              ) AS leave_days_count,
-              (SELECT COUNT(*)::int
-               FROM df_attendance att2
-               WHERE att2.user_id = u.id
-                 AND att2.status IN ('present', 'late', 'half_day', 'absent')
-              ) AS total_tracked_days
-       FROM df_users u
-       LEFT JOIN df_sections s ON s.slug = u.section_slug
-       LEFT JOIN df_attendance a ON a.user_id = u.id AND a.work_date = $1
-       WHERE u.portal_role IN ('it_ceo', 'bd_ceo', 'staff')
-       ORDER BY
-         CASE WHEN u.portal_role IN ('it_ceo', 'bd_ceo') THEN 0 ELSE 1 END ASC,
-         u.name ASC`,
+      rosterSql(
+        "WHERE u.portal_role IN ('it_ceo', 'bd_ceo', 'staff')",
+        `ORDER BY
+           CASE WHEN u.portal_role IN ('it_ceo', 'bd_ceo') THEN 0 ELSE 1 END ASC,
+           u.name ASC`
+      ),
       [workDate]
+    ),
+    // The signed-in viewer's own row (the ERP Owner is not on the team board but
+    // still marks their OWN attendance).
+    one<Record<string, unknown>>(
+      rosterSql("WHERE u.id = $2", "LIMIT 1"),
+      [workDate, user.id]
     ),
     rawQuery<Record<string, unknown>>(
       `SELECT COUNT(*) FILTER (WHERE status = 'present')::int AS month_present,
@@ -132,6 +142,7 @@ export async function GET(request: Request) {
     sections: sectionRows.map(mapSectionRow),
     summary,
     records,
+    me: meRow ? mapAttendanceRow(meRow, workDate) : null,
     leaves: leaveRows.map(mapLeaveRow),
   });
 }
@@ -143,10 +154,11 @@ export async function POST(request: Request) {
     return jsonNoStore({ error: "Portal login required." }, 401);
   }
   const settings = await getAppSettings();
+  // Attendance day rolls over every day at 4:00 AM in the workspace timezone!
   const today = todayInTimezone(settings.timezone);
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "present" | "check_in" | "check_out" | "mark";
+    action?: "present" | "check_in" | "check_out" | "mark" | "undo";
     userId?: string;
     workDate?: string;
     status?: AttendanceStatus;
@@ -154,88 +166,56 @@ export async function POST(request: Request) {
   };
 
   const action = body.action ?? "present";
+
+  // ── SECURITY: only the account holder can mark their OWN attendance ───────
+  const requestedId = String(body.userId || actor.id || "").trim();
+  if (requestedId !== actor.id) {
+    return jsonNoStore(
+      {
+        error:
+          "Attendance is self-marked only — every account holder must mark their own attendance.",
+      },
+      403
+    );
+  }
+
+  // Only the currently active work day can be marked (no back/forward dating).
   const workDate =
     body.workDate && /^\d{4}-\d{2}-\d{2}$/.test(body.workDate)
       ? body.workDate
       : today;
-
-  // One-click "Mark Present" on Attendance board (works for self, CEOs, and team members!)
-  if (action === "present" || action === "check_in") {
-    const targetId = String(body.userId || actor.id || "").trim();
-    if (!targetId) {
-      return jsonNoStore({ error: "Select a member." }, 400);
-    }
-
-    const targetUser = await one<Record<string, unknown>>(
-      `SELECT * FROM df_users WHERE id = $1`,
-      [targetId]
+  if (workDate !== today) {
+    return jsonNoStore(
+      {
+        error: `Attendance can only be marked for the active work day (${today}). New day starts at 04:00 AM.`,
+      },
+      400
     );
-    if (!targetUser) {
-      return jsonNoStore({ error: "Member not found." }, 404);
-    }
+  }
 
-    const nowIso = new Date().toISOString();
+  // Undo my own mark for today (before it is locked by the 4:00 AM rollover).
+  if (action === "undo") {
     await rawQuery(
-      `INSERT INTO df_attendance (
-         id, user_id, work_date, status, check_in, note, marked_by_id, marked_by_name, updated_at
-       ) VALUES ($1, $2, $3, 'present', $4, $5, $6, $7, NOW())
-       ON CONFLICT (user_id, work_date)
-       DO UPDATE SET
-         status = 'present',
-         check_in = COALESCE(df_attendance.check_in, EXCLUDED.check_in),
-         marked_by_id = EXCLUDED.marked_by_id,
-         marked_by_name = EXCLUDED.marked_by_name,
-         updated_at = NOW()`,
-      [
-        randomUUID(),
-        targetId,
-        workDate,
-        nowIso,
-        String(body.note ?? "").trim(),
-        actor.id,
-        actor.name,
-      ]
+      `DELETE FROM df_attendance WHERE user_id = $1 AND work_date = $2`,
+      [actor.id, workDate]
     );
-
     await logAudit({
       actor,
-      action: "attendance.present",
+      action: "attendance.self.undo",
       targetType: "attendance",
-      summary: `${String(targetUser.name)} marked Present (${workDate})`,
+      summary: `${actor.name} cleared their own attendance for ${workDate}`,
     });
-
-    return jsonNoStore({ ok: true, status: "present", workDate });
+    return jsonNoStore({ ok: true, status: "unmarked", workDate });
   }
 
   if (action === "check_out") {
-    const targetId = String(body.userId || actor.id || "").trim();
     await rawQuery(
       `UPDATE df_attendance
        SET check_out = $1, updated_at = NOW()
        WHERE user_id = $2 AND work_date = $3`,
-      [new Date().toISOString(), targetId, workDate]
+      [new Date().toISOString(), actor.id, workDate]
     );
     return jsonNoStore({ ok: true, action: "check_out" });
-  }
-
-  const targetUserId = String(body.userId || actor.id);
-  const targetUser = await one<Record<string, unknown>>(
-    `SELECT * FROM df_users WHERE id = $1`,
-    [targetUserId]
-  );
-  if (!targetUser) {
-    return jsonNoStore({ error: "Member not found." }, 404);
-  }
-
-  const targetSection = targetUser.section_slug
-    ? String(targetUser.section_slug)
-    : null;
-
-  if (
-    targetUserId !== actor.id &&
-    !canManageStaffSection(actor, targetSection)
-  ) {
-    return jsonNoStore({ error: "Not authorized." }, 403);
   }
 
   const status: AttendanceStatus =
@@ -262,7 +242,7 @@ export async function POST(request: Request) {
        updated_at = NOW()`,
     [
       randomUUID(),
-      targetUserId,
+      actor.id,
       workDate,
       status,
       checkInStamp,
@@ -274,10 +254,10 @@ export async function POST(request: Request) {
 
   await logAudit({
     actor,
-    action: "attendance.marked",
+    action: "attendance.self.marked",
     targetType: "attendance",
-    summary: `Marked ${String(targetUser.name)} ${status.toUpperCase()} on ${workDate}`,
+    summary: `${actor.name} marked their own attendance ${status.toUpperCase()} (${workDate})`,
   });
 
-  return jsonNoStore({ ok: true });
+  return jsonNoStore({ ok: true, status, workDate, userId: actor.id });
 }

@@ -281,9 +281,29 @@ export default function StaffPublicProfilePage() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold text-sm">{tk.title}</span>
-                    <span className="uppercase font-bold gold-accent">
-                      {tk.status}
+                    <span
+                      className={`uppercase font-bold ${
+                        (tk.viewerStatus ?? tk.status) === "completed"
+                          ? "attendance-glow-name"
+                          : "gold-accent"
+                      }`}
+                    >
+                      {tk.viewerStatus ?? tk.status}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap text-[10px] text-muted-royal uppercase font-bold">
+                    <span>{tk.sectionSlug} · {tk.priority}</span>
+                    {tk.requestKind === "cross" && (
+                      <span>
+                        {tk.originSection.toUpperCase()} →{" "}
+                        {tk.sectionSlug.toUpperCase()} request
+                      </span>
+                    )}
+                    {tk.assignees.length > 1 && (
+                      <span className="normal-case">
+                        Shared with {tk.assignees.length} members
+                      </span>
+                    )}
                   </div>
                   {tk.submissionLink && (
                     <a
